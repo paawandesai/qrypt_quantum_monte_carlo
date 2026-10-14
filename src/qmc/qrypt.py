@@ -22,6 +22,9 @@ from typing import Protocol
 
 DEFAULT_URL = "https://api-eus.qrypt.com/api/v1/quantum-entropy"
 BLOCK_BYTES = 1024
+# Qrypt sits behind Cloudflare, which answers urllib's default User-Agent
+# ("Python-urllib/3.x") with 403 "error code: 1010". Identify the client instead.
+USER_AGENT = "qrypt-monte-carlo/0.1"
 
 # Response headers that might carry a request id. Qrypt does not document one;
 # we store whatever is present and null otherwise, never an invented value.
@@ -42,7 +45,7 @@ STATUS_CAUSES = {
 CAUSE_MESSAGES = {
     "qrypt_bad_request": "Qrypt rejected the entropy request as malformed (400).",
     "qrypt_unauthorized": "Qrypt token is invalid or expired (401).",
-    "qrypt_allotment_exhausted": "Qrypt entropy allotment for this period is used up (403).",
+    "qrypt_allotment_exhausted": "Qrypt refused the request (403): forbidden, or the entropy quota is used up.",
     "qrypt_rate_limited": "Qrypt rate limit hit (429): more than 30 requests in 10 seconds.",
     "qrypt_internal_error": "Qrypt returned an internal error (500).",
     "qrypt_entropy_unavailable": "Qrypt entropy supply is temporarily insufficient (503).",
@@ -95,7 +98,11 @@ class QryptClient:
 
         req = urllib.request.Request(  # noqa: S310 - fixed https URL from config
             f"{self._url}?size=1",
-            headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
+            headers={
+                "Accept": "application/json",
+                "Authorization": f"Bearer {token}",
+                "User-Agent": USER_AGENT,
+            },
             method="GET",
         )
         try:
