@@ -412,9 +412,12 @@ infra/                Terraform root module and modules/
 python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.lock
 pytest --cov                      # unit + moto-backed handler tests
 ruff check src tests scripts
+mypy                              # typecheck src/qmc
 scripts/check_seed_path.sh        # no local entropy in src/
 python scripts/build.py           # reproducible zips
-pip install pre-commit && pre-commit install   # gitleaks + staged-diff checks
+pre-commit install --hook-type pre-commit --hook-type pre-push
+# pre-commit (~1 s, staged files): ruff, gitleaks, credential/PRD check, seed grep, terraform fmt
+# pre-push (~15 s): mypy + full unit suite. Never bypass with --no-verify.
 ```
 
 AI assistance is disclosed in [AI_USAGE.md](AI_USAGE.md); licenses in [LICENSES.md](LICENSES.md).

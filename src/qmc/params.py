@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import os
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 
 FLOAT_FIELDS = ("S0", "K", "r", "sigma", "T")
@@ -41,13 +42,13 @@ class Limits:
     fault_injection: bool = False
 
     @classmethod
-    def from_env(cls, env: dict[str, str] | None = None) -> Limits:
-        env = os.environ if env is None else env
+    def from_env(cls, env: Mapping[str, str] | None = None) -> Limits:
+        src: Mapping[str, str] = os.environ if env is None else env
         return cls(
-            max_paths=int(env.get("MAX_PATHS", cls.max_paths)),
-            max_shards=int(env.get("MAX_SHARDS", cls.max_shards)),
-            max_paths_per_shard=int(env.get("MAX_PATHS_PER_SHARD", cls.max_paths_per_shard)),
-            fault_injection=env.get("ENABLE_FAULT_INJECTION", "false").lower() == "true",
+            max_paths=int(src.get("MAX_PATHS", cls.max_paths)),
+            max_shards=int(src.get("MAX_SHARDS", cls.max_shards)),
+            max_paths_per_shard=int(src.get("MAX_PATHS_PER_SHARD", cls.max_paths_per_shard)),
+            fault_injection=src.get("ENABLE_FAULT_INJECTION", "false").lower() == "true",
         )
 
     def as_dict(self) -> dict:

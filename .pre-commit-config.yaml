@@ -1,20 +1,58 @@
-# Install: pip install pre-commit && pre-commit install
+# Local gate. Install once per clone:
+#   pip install -r requirements-dev.lock
+#   pre-commit install --hook-type pre-commit --hook-type pre-push
+# pre-commit (staged files only, target < 10 s): ruff lint + format, gitleaks,
+#   staged-diff credential/PRD check, fail-closed seed grep, terraform fmt.
+# pre-push (target < 60 s): mypy and the full unit suite (~13 s).
+# Needs gitleaks and terraform on PATH. Never bypass with --no-verify.
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
 repos:
-  - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.28.0
-    hooks:
-      - id: gitleaks
   - repo: local
     hooks:
+      - id: ruff-check
+        name: ruff check (staged)
+        entry: ruff check --force-exclude --fix --exit-non-zero-on-fix
+        language: python
+        additional_dependencies: ["ruff==0.17.0"]
+        types: [python]
+      - id: ruff-format
+        name: ruff format (staged)
+        entry: ruff format --force-exclude
+        language: python
+        additional_dependencies: ["ruff==0.17.0"]
+        types: [python]
+      - id: gitleaks
+        name: gitleaks (staged)
+        entry: gitleaks git --staged --redact --no-banner
+        language: system
+        pass_filenames: false
       - id: check-staged
-        name: staged diff secret/PRD grep
+        name: staged diff credential/PRD check
         entry: scripts/check_staged.sh
         language: script
         pass_filenames: false
-        always_run: true
       - id: check-seed-path
         name: no local entropy in src/
         entry: scripts/check_seed_path.sh
         language: script
         pass_filenames: false
-        always_run: true
+        files: ^src/
+      - id: terraform-fmt
+        name: terraform fmt (staged)
+        entry: terraform fmt -check
+        language: system
+        files: \.tf$
+      - id: mypy
+        name: mypy (pre-push)
+        entry: mypy
+        language: python
+        additional_dependencies: ["mypy==2.4.0", "numpy==2.5.4"]
+        pass_filenames: false
+        stages: [pre-push]
+      - id: pytest
+        name: unit tests (pre-push)
+        entry: python -m pytest -q -p no:cacheprovider
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

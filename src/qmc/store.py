@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
 from decimal import Decimal
 from functools import cached_property
 
@@ -70,11 +71,11 @@ def from_dynamo(value):
 
 
 class Store:
-    def __init__(self, env: dict | None = None, session=None):
-        env = os.environ if env is None else env
-        self.jobs_table_name = env["JOBS_TABLE"]
-        self.shards_table_name = env["SHARDS_TABLE"]
-        self.queue_url = env.get("SHARD_QUEUE_URL", "")
+    def __init__(self, env: Mapping[str, str] | None = None, session=None):
+        src: Mapping[str, str] = os.environ if env is None else env
+        self.jobs_table_name = src["JOBS_TABLE"]
+        self.shards_table_name = src["SHARDS_TABLE"]
+        self.queue_url = src.get("SHARD_QUEUE_URL", "")
         self._session = session or boto3.session.Session()
 
     @cached_property
