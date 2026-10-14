@@ -1,7 +1,7 @@
 # GitLab CI for the Qrypt Monte Carlo platform.
 #
-# Push path (interruptible, DAG via needs, each job skips when its inputs did
-# not change): ruff, mypy, unit tests + coverage gate, fail-closed seed grep,
+# Push path (interruptible, every job starts at once via needs: [], each job
+# skips when its inputs did not change): ruff, mypy, unit tests + coverage gate, fail-closed seed grep,
 # gitleaks, license audit, reproducible Lambda build, terraform fmt/validate,
 # tflint, Checkov. Heavy lane (schedule or manual): browser smoke test.
 # AWS jobs (plan/apply) use GitLab OIDC id_tokens; apply is manual and serialized.
@@ -89,25 +89,6 @@ variables:
     paths: [.cache/pip]
     policy: pull
 
-# ---- install once -----------------------------------------------------------------
-
-install:
-  extends: [.py_image, .rules_py]
-  stage: check
-  needs: []
-  cache:
-    key:
-      files: [requirements-dev.lock]
-    paths: [.cache/pip]
-    policy: pull-push
-  script:
-    - python -m venv .venv
-    - .venv/bin/pip install --quiet -r requirements-dev.lock
-    - du -sh .venv
-  artifacts:
-    paths: [.venv]
-    expire_in: 1 hour
-
 # ---- check ------------------------------------------------------------------------
 
 lint:
@@ -127,11 +108,20 @@ typecheck:
     - pip install --quiet mypy==2.4.0 numpy==2.5.4
     - mypy
 
+# Dependencies: the full dev venv is 316 MB, over this instance's artifact size
+# limit (413 on upload), so jobs that need it re-install from the lockfile with
+# a pip download cache keyed on the lockfile instead of passing .venv around.
 unit-tests:
   extends: [.py_image, .rules_py]
   stage: check
-  needs: [install]
+  needs: []
+  cache:
+    key:
+      files: [requirements-dev.lock]
+    paths: [.cache/pip]
+    policy: pull-push
   script:
+    - python -m venv .venv && .venv/bin/pip install --quiet -r requirements-dev.lock
     - .venv/bin/python -m pytest -p no:cacheprovider --cov --cov-report=term --cov-report=xml --cov-fail-under=80
   coverage: '/TOTAL.*\s(\d+(?:\.\d+)?)%/'
   artifacts:
@@ -144,8 +134,9 @@ unit-tests:
 license-audit:
   extends: [.py_image, .rules_deps]
   stage: check
-  needs: [install]
+  needs: []
   script:
+    - python -m venv .venv && .venv/bin/pip install --quiet -r requirements-dev.lock
     - .venv/bin/pip-licenses --from=mixed --format=markdown --with-urls --order=license > LICENSES.generated.md
     - .venv/bin/pip-licenses --from=mixed --fail-on="GNU General Public License (GPL);GNU Affero General Public License v3 (AGPLv3);GPL-3.0;AGPL-3.0"
   artifacts:
