@@ -55,7 +55,7 @@ Terraform layout (`infra/`): one root module and five child modules.
 | Module | Creates |
 |---|---|
 | `data` | `jobs` table (+ `by_status` GSI) and `shards` table, provisioned capacity, TTL 7 days |
-| `workers` | shard queue + DLQ (redrive, maxReceiveCount 3), worker function + role + log group, SQS event-source mapping, reconciler function + role + log group + 5-minute EventBridge rule |
+| `workers` | shard queue + DLQ (redrive, maxReceiveCount 3), private S3 bucket for the worker zip, worker function + role + log group, SQS event-source mapping, reconciler function + role + log group + 5-minute EventBridge rule |
 | `api` | api function + role + log group, Function URL, the two URL resource-policy statements |
 | `observability` | SNS topic + policy + email subscription, 5 alarms, dashboard |
 | `budget` | $1/month AWS Budget (alerts at any actual spend and at 100% forecast) |
@@ -306,6 +306,7 @@ replaced by measured values.
 | SNS | a handful of alarm publishes + emails | 1M publishes, 1,000 emails | |
 | EventBridge | scheduled rule, 8,640 invocations | scheduled rules are not charged | |
 | SSM Parameter Store | 2 standard parameters, standard throughput | no charge | |
+| S3 | one private bucket holding the ~16 MB worker zip (needed because the AWS provider cannot upload a zip this large inline); a PUT per code change and a GET per deploy | 5 GB, 2,000 PUTs and 20,000 GETs for the first 12 months only; after that about $0.0004/month | not always-free |
 | Budgets | 1 budget created by Terraform (+1 created in the console) | first 2 budgets free | |
 
 Not used, because none is always-free: NAT gateways, load balancers, EC2, RDS,

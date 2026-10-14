@@ -114,7 +114,32 @@ data "aws_iam_policy_document" "deploy" {
   statement {
     sid       = "LogsDescribe"
     actions   = ["logs:DescribeLogGroups"]
-    resources = ["arn:aws:logs:${local.region}:${local.acct}:log-group:*"]
+    resources = ["*"]
+  }
+  statement {
+    sid = "S3Code"
+    actions = [
+      "s3:CreateBucket",
+      "s3:DeleteBucket",
+      "s3:ListBucket",
+      "s3:GetBucket*",
+      "s3:PutBucket*",
+      "s3:DeleteBucketPolicy",
+      "s3:GetAccelerateConfiguration",
+      "s3:GetEncryptionConfiguration",
+      "s3:PutEncryptionConfiguration",
+      "s3:GetLifecycleConfiguration",
+      "s3:PutLifecycleConfiguration",
+      "s3:GetReplicationConfiguration",
+      "s3:PutObject",
+      "s3:GetObject",
+      "s3:GetObjectVersion",
+      "s3:GetObjectTagging",
+      "s3:DeleteObject",
+      "s3:DeleteObjectVersion",
+      "s3:ListBucketVersions",
+    ]
+    resources = ["arn:aws:s3:::${local.p}*", "arn:aws:s3:::${local.p}*/*"]
   }
   statement {
     sid = "EventBridge"
