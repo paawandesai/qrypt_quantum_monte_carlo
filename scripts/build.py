@@ -39,7 +39,8 @@ def numpy_pin() -> str:
 
 def add_tree(zf: zipfile.ZipFile, base: Path, arc_prefix: str = "") -> None:
     files = sorted(
-        p for p in base.rglob("*")
+        p
+        for p in base.rglob("*")
         if p.is_file() and not (set(p.relative_to(base).parts) & SKIP_DIRS) and p.suffix != ".pyc"
     )
     for p in files:
@@ -70,10 +71,26 @@ def main() -> None:
     marker = deps / f".numpy-{pin}-{PLATFORM}"
     if not marker.exists():
         shutil.rmtree(deps, ignore_errors=True)
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet", "--no-compile", "--no-deps",
-             "--only-binary=:all:", "--platform", PLATFORM, "--python-version", PY_VERSION,
-             "--implementation", "cp", "--target", str(deps), f"numpy=={pin}"],
+        subprocess.run(  # noqa: S603 - fixed argv, no shell
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--quiet",
+                "--no-compile",
+                "--no-deps",
+                "--only-binary=:all:",
+                "--platform",
+                PLATFORM,
+                "--python-version",
+                PY_VERSION,
+                "--implementation",
+                "cp",
+                "--target",
+                str(deps),
+                f"numpy=={pin}",
+            ],
             check=True,
         )
         for p in deps.glob("*.dist-info"):
