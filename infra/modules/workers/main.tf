@@ -132,6 +132,14 @@ resource "aws_s3_object" "worker_zip" {
   key         = "worker.zip"
   source      = "${var.zip_dir}/worker.zip"
   source_hash = filemd5("${var.zip_dir}/worker.zip")
+
+  # No tags on the object: tagging needs s3:PutObjectTagging, which the deployer
+  # does not otherwise need; the bucket itself carries the default tags.
+  override_provider {
+    default_tags {
+      tags = {}
+    }
+  }
 }
 
 resource "aws_lambda_function" "worker" {

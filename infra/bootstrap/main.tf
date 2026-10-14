@@ -65,6 +65,13 @@ data "aws_iam_policy_document" "deploy" {
       values   = ["arn:aws:lambda:${local.region}:${local.acct}:function:${local.p}*"]
     }
   }
+  # Tagging an event-source mapping at creation has no function ARN to match
+  # the condition above, so tag actions get their own unconditioned statement.
+  statement {
+    sid       = "EventSourceMappingTags"
+    actions   = ["lambda:TagResource", "lambda:UntagResource", "lambda:ListTags"]
+    resources = ["arn:aws:lambda:${local.region}:${local.acct}:event-source-mapping:*"]
+  }
   statement {
     sid = "Roles"
     actions = [
