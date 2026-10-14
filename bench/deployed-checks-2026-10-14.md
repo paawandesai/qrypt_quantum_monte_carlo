@@ -1,41 +1,67 @@
 # Deployed checks, 2026-10-14
 
-Stack `qmc-dev` (us-east-1), applied from commit 48d2aac and redeployed
-~22:02:50Z by the build thread, with reserved
-concurrency off (see README "Known constraints"). Run from a cloud session
-against the Function URL with the real bearer key. Nothing stubbed; every
-value below is copied from the live responses.
+Stack `qmc-dev` (us-east-1), reserved concurrency off (see README "Known
+constraints"). Run from a cloud session against the Function URL with the real
+bearer key. Nothing stubbed; values are copied from the live responses and the
+committed `results-*.json` files.
 
 | # | Check | Result |
 |---|---|---|
-| 1 | `qmc_cli.py health` | PASS: both tables ACTIVE, all three config flags true, SSM key loads recorded |
-| 1 | `qmc_cli.py system` | PASS: numpy 2.5.4, arm64, caps 10M paths / 100 shards, fault injection off, DLQ depth 0 |
-| 2 | 1M-path Black-Scholes job | BLOCKED: Qrypt answered 403, job rejected (below) |
-| 3 | Replay | BLOCKED: no job exists to replay |
-| 4 | Bundle + offline verify | BLOCKED: no job exists |
-| 5 | Latency / wall-clock benchmarks | NOT RUN: every submit is rejected, so a latency figure would measure the rejection path, not the target |
-| 6 | Fail-closed (`deployed_failclosed_test.py`) | NOT RUN (needs Paawan's OK). A real upstream rejection was observed instead, see below |
-| 7 | DLQ alarm | NOT RUN (needs an apply with fault injection) |
+| 1 | `qmc_cli.py health` / `system` | PASS: tables ACTIVE, config complete, numpy 2.5.4 on arm64, DLQ depth 0 |
+| 2 | 1M-path Black-Scholes job | PASS: see below |
+| 3 | Replay | PASS: `bit-identical` |
+| 4 | Bundle + offline `verify.py` | PASS: `bit-identical` |
+| 5 | Benchmarks | PASS: p95 619.8 ms (< 800), 1M median 1.07 s (< 60) |
+| 6 | Fail-closed (`deployed_failclosed_test.py`) | NOT RUN: needs Paawan's OK |
+| 7 | DLQ alarm | NOT RUN: needs an apply with fault injection |
 
-## Observed fail-closed rejection (real Qrypt response, not injected)
+## 2. The 1M-path job (23:04:51Z, after the User-Agent fix)
 
-Three submissions: ~21:59Z and 22:00:46Z on the 48d2aac code (1M paths / 10
-shards, then 1,000 paths / 1 shard), and 22:09:37Z (1M / 10) after the
-redeploy at ~22:02:50Z. All three gave the same answer:
+Job `f242eeb5cbc2ee5824464c2727063d89`, S0=100 K=100 r=0.05 sigma=0.2 T=1,
+1,000,000 paths over 10 shards. `COMPLETE`, all 10 shards done.
 
-```
-http_status 503, error entropy_unavailable, cause qrypt_allotment_exhausted,
-qrypt_status 403, job_created false   (client-side latency 278, 641 and 475 ms)
-```
+| | value | float64 hex |
+|---|---|---|
+| estimate | 10.453435645040196 | 0x1.4e828b784939dp+3 |
+| std error | 0.014718899828425936 | 0x1.e24f14b2b655ap-7 |
+| 95% CI | [10.42458713148443, 10.482284158595963] | 0x1.4d9637c080e60p+3, 0x1.4f6edf30118dap+3 |
+| Black-Scholes | 10.450583572185565 | |
+| z | +0.194 (within 3 SE) | |
 
-`list` afterwards returned no jobs: no job record was created and no local
-seed was used. `system` reported `kib_used` 3 of the 5,000 KiB ceiling after
-the second and the third attempts.
+`entropy_source` = `qrypt`. `qrypt_request_id` is null: Qrypt's response
+carried no request-id header or field, and the client stores null rather than
+invent one. Provenance is the SHA-256 of the 1 KiB block
+(`18155691…aecbcd`), stored on the job and in the bundle.
 
-## Open question on the 403
+`runtime_consistent` is false: the shards ran on two hosts with different
+CPU-feature hashes (same numpy, arch and algorithm). The results still matched
+bit for bit on replay and offline.
 
-The client maps Qrypt 403 to "allotment used up", but these were the first
-entropy requests this deployment ever made (`jobs` was empty), so the 403 more
-likely means the token is not entitled to the Entropy product, the trial is not
-active, or the token is wrong. Not verified: the token is never read from SSM
-in this session and the Qrypt host is not reachable from it.
+## 3–4. Replay and offline verify
+
+Replay job `c03364665af75b2997f0a1fb95fcdfd0` (0 KiB of new entropy) recomputed
+all 10 shards: estimate, std error, CI low and CI high all equal as float64 hex,
+verdict `bit-identical`. `verify.py` on the bundle, run on an x86_64 machine
+(numpy 2.5.4), also gave `bit-identical` on all four values.
+
+## 5. Benchmarks
+
+- `results-latency-20261014T230524Z.json`: 50 of 50 submissions accepted;
+  warm p50 325.1 ms, p95 619.8 ms, max 739.6 ms; first request 561.7 ms.
+  Measured client-side from a cloud container in the US, through its proxy, so
+  it includes that network path.
+- `results-wallclock-20261014T230633Z.json`: 5 runs of 1M paths / 10 shards,
+  submit to `COMPLETE`: median 1.07 s, max 1.4 s. All 5 within 3 SE of
+  Black-Scholes (z from −2.07 to +0.65).
+
+Entropy used after all checks: 60 KiB of the 5,000 KiB ceiling.
+
+## Earlier attempts, and the cause
+
+Before 23:04Z every submission (21:59Z, 22:00Z, 22:09Z) was rejected with 503
+`entropy_unavailable`, Qrypt status 403, `job_created: false`: the fail-closed
+path working against a real upstream refusal. Paawan reproduced the cause from
+a Mac: Qrypt is behind Cloudflare, which answers urllib's default User-Agent
+(`Python-urllib/3.13`) with 403 "error code: 1010", while the same token with
+curl's User-Agent got entropy. Commit bb71747 sends `qrypt-monte-carlo/0.1`
+and was deployed at ~23:04Z.

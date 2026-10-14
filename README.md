@@ -9,9 +9,10 @@ aggregates to a price with a 95% confidence interval, and can be **replayed**
 from its stored seed to recompute the same float64 result.
 
 Status (2026-10-14): code, tests and Terraform are complete and `terraform plan`
-is clean. **Not yet deployed**: the first `apply` waits for the account's Lambda
-concurrency quota increase (see [Known constraints](#known-constraints)). All
-deployed measurements below are therefore still marked _not yet measured_.
+is clean. Deployed to a dev stack on 2026-10-14 with reserved concurrency
+temporarily off while the Lambda concurrency quota increase is pending (see
+[Known constraints](#known-constraints)). The 1M-path job, replay and benchmarks
+have been measured there; the fail-closed and DLQ alarm tests have not.
 
 ## Contents
 
@@ -204,10 +205,12 @@ Deployed checks (run after `apply`; results to be committed under `bench/`): a
 `scripts/deployed_failclosed_test.py` (real network failure → rejection, no job
 created), and a fault-injected shard tripping the DLQ alarm and email.
 
-First run, 2026-10-14: health and system pass; Qrypt answered 403 to every
-entropy request, so the job, replay and benchmark checks are blocked. Every
-submission was rejected with no job created. Details in
-`bench/deployed-checks-2026-10-14.md`.
+Run on 2026-10-14 (details and job ids in `bench/deployed-checks-2026-10-14.md`):
+the 1M-path job gave 10.453436 (SE 0.014719, z = +0.19 against 10.450584), and
+its replay and the offline `verify.py` both came out `bit-identical` on the
+float64 hex of estimate, SE and CI bounds. The fail-closed test and the DLQ
+alarm have not run yet. The first attempts were all rejected because Qrypt's
+Cloudflare front blocks urllib's default User-Agent; fixed in bb71747.
 
 ### Is replay really bit-identical?
 
@@ -223,8 +226,11 @@ the numpy version, architecture and a hash of the CPU features it actually ran
 on. A replay is refused if numpy, architecture or algorithm version differ, and
 a result whose shards ran on different CPU-feature sets is flagged
 `runtime_consistent: false`. The verdict is `bit-identical` only when all four
-hex values match; otherwise it says `different` and shows the values. Until the
-deployed replay test has run, the deployed claim is **unverified**.
+hex values match; otherwise it says `different` and shows the values. On the
+deployed stack (2026-10-14) a 1M-path replay matched on all four hex values,
+even though its shards ran on two different CPU-feature sets
+(`runtime_consistent: false`); `verify.py` on an x86_64 machine matched too.
+That is one job, not a proof for every host.
 
 ## Failure handling
 
@@ -347,8 +353,8 @@ nothing stubbed. Raw JSON lands in `bench/`.
 
 | Target | Value | Result |
 |---|---|---|
-| Submit latency, warm, 50 submissions | < 800 ms p95 | _not yet measured_ (cold start reported separately) |
-| 1M paths submit → `COMPLETE`, 5 runs | < 60 s | _not yet measured_ |
+| Submit latency, warm, 50 submissions | < 800 ms p95 | **619.8 ms p95**, 325.1 ms p50, 739.6 ms max; first request 561.7 ms (2026-10-14, client in a us-east cloud container) |
+| 1M paths submit → `COMPLETE`, 5 runs | < 60 s | **1.07 s median**, 1.4 s max; all 5 `COMPLETE`, all within 3 SE of Black-Scholes (worst z = −2.07) |
 | `terraform apply` from empty | < 10 min | _not yet measured_ |
 | Steady-state cost at 100 jobs/day | $0 | arithmetic above; durations to be replaced with measured values |
 
@@ -404,8 +410,8 @@ Other constraints:
 
 ## What this system does not do
 
-- It does not deploy itself yet (see the concurrency quota), and no deployed
-  benchmark, replay or alarm test has run.
+- It runs without reserved concurrency for now (see the concurrency quota),
+  and the deployed fail-closed and DLQ alarm tests have not run.
 - It prices one product: a European call under Black-Scholes GBM. No portfolio
   VaR, no other payoffs, no variance reduction.
 - It does not queue jobs when Qrypt is down (`PENDING_ENTROPY` is a stretch not
