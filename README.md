@@ -204,6 +204,11 @@ Deployed checks (run after `apply`; results to be committed under `bench/`): a
 `scripts/deployed_failclosed_test.py` (real network failure → rejection, no job
 created), and a fault-injected shard tripping the DLQ alarm and email.
 
+First run, 2026-10-14: health and system pass; Qrypt answered 403 to every
+entropy request, so the job, replay and benchmark checks are blocked. Every
+submission was rejected with no job created. Details in
+`bench/deployed-checks-2026-10-14.md`.
+
 ### Is replay really bit-identical?
 
 On the same deployed runtime, yes by construction and by test: the shard seed,
