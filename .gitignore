@@ -1,0 +1,40 @@
+# Secrets and local config: never committed
+.env
+.env.*
+!.env.example
+
+# Terraform state, plans and variable files
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+*.tfplan
+tfplan*
+.terraform/
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Build output
+build/
+dist/
+*.zip
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.egg-info/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
