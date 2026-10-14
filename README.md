@@ -417,7 +417,7 @@ scripts/check_seed_path.sh        # no local entropy in src/
 python scripts/build.py           # reproducible zips
 pre-commit install --hook-type pre-commit --hook-type pre-push
 # pre-commit (~1 s, staged files): ruff, gitleaks, credential/PRD check, seed grep, terraform fmt
-# pre-push (~15 s): mypy + full unit suite. Never bypass with --no-verify.
+# pre-push (~15 s warm): mypy + full unit suite. Never bypass with --no-verify.
 ```
 
 AI assistance is disclosed in [AI_USAGE.md](AI_USAGE.md); licenses in [LICENSES.md](LICENSES.md).
