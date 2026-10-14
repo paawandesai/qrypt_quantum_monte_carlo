@@ -18,6 +18,7 @@ deployed measurements below are therefore still marked _not yet measured_.
 - [Architecture](#architecture)
 - [Grader quick-start](#grader-quick-start)
 - [API](#api)
+- [Web console](#web-console)
 - [How correctness is checked](#how-correctness-is-checked)
 - [Failure handling](#failure-handling)
 - [Security](#security)
@@ -153,9 +154,36 @@ Input limits (Terraform variables): `paths ≤ 10,000,000`, `shards ≤ 100`,
 `paths/shards ≤ 2,000,000`, `shards ≤ paths`, `0 < sigma ≤ 5`, `0 < T ≤ 50`,
 `0 < S0, K ≤ 1e6`, `-1 ≤ r ≤ 1`. Every violation is listed in the 400 body.
 
+## Web console
+
+`GET /` on the Function URL serves a small static console (HTML, CSS and
+vanilla JS shipped inside the api zip; no framework, no third-party scripts, no
+analytics). It covers the three users in the brief:
+
+- **Analyst**: New job, prefilled with the standard case, with the same limits
+  the server enforces, a Black-Scholes preview and the entropy cost; Job detail
+  shows progress per shard, then the estimate, SE, 95% CI and the distance from
+  Black-Scholes in standard errors.
+- **Auditor**: Provenance (entropy source, Qrypt request id or "not provided by
+  Qrypt", master seed, block hash, runtime fingerprint), Replay with a
+  no-new-entropy confirmation, a field-by-field float64 hex comparison, and a
+  bundle download for `scripts/verify.py`.
+- **Operator**: System view with health, entropy used against the ceiling, limits,
+  fault-injection state and DLQ depth; `PARTIAL` jobs show failed shard indexes and error codes.
+
+The bearer key is kept in `sessionStorage` for the tab only and sent only as an
+`Authorization` header to the same origin. Every page carries a "Demo — synthetic
+data only" banner, `noindex`, and a strict Content-Security-Policy.
+
+`tests/e2e/console_smoke.mjs` drives it with Playwright (connect, wrong key → 401,
+client validation, submit → `COMPLETE` within 3 SE, replay → bit-identical,
+fault-injected shard → `PARTIAL`, no horizontal scroll at 390 px). It passes
+against the moto-backed local server in `tests/e2e/local_server.py`; it has not
+yet run against a deployment.
+
 ## How correctness is checked
 
-All by committed tests (`pytest`, 132 tests, 92% line+branch coverage of `src/qmc`;
+All by committed tests (`pytest`, 137 tests, 93% line+branch coverage of `src/qmc`;
 CI gate 80%). Nothing is verified by a model's say-so.
 
 | Property | Test |

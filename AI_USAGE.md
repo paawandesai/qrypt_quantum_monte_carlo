@@ -31,17 +31,18 @@ carry a `Co-Authored-By: Claude` trailer.
 
 | Artifact | Verified by | Not verified |
 |---|---|---|
-| `src/qmc/**` (all deployed code) | 132 unit and moto-backed tests (92% line+branch coverage); ruff; the seed-path grep | behaviour on real AWS and against the real Qrypt API (not deployed yet) |
+| `src/qmc/**` (all deployed code, including the console) | 137 unit and moto-backed tests (93% line+branch coverage); ruff; the seed-path grep | behaviour on real AWS and against the real Qrypt API (not deployed yet) |
 | `tests/**` | run green locally; each test was read for whether it can fail (the statistical test is intentionally non-deterministic) | that the test suite covers every edge case the brief lists |
 | `infra/**` (Terraform) | `terraform validate`, `terraform plan` (34 resources, no secret values in plan output), tflint (preset `all`), Checkov (0 failed; every suppression has an inline reason) | `apply`, `destroy`, and the "no drift on second plan" check have not run |
 | `.gitlab-ci.yml` | GitLab's CI lint API reports it valid | no pipeline has executed (the instance's runner is offline) |
 | `scripts/build.py` | rebuilt twice with byte-identical zips; packaging test | that the arm64 numpy wheel imports on Lambda |
 | `scripts/bench.py`, `scripts/deployed_failclosed_test.py`, `scripts/qmc_cli.py` | lint only | not run against a deployment yet |
+| `src/qmc/console/*` (web console UI and its copy) | Playwright smoke test against a moto-backed local server; screenshots reviewed by the assistant | real browsers other than Chromium; a deployment; accessibility audit beyond keyboard focus and contrast choices |
 | `scripts/verify.py` | test against a moto-backed job bundle | a real deployed bundle |
 | README cost arithmetic | arithmetic re-checked by hand | Lambda durations are estimates; AWS free-tier figures not re-checked against current AWS pages from this environment |
 | README and this file | read by the assistant against the guardrails | candidate review pending |
 | Design plan (Claude Doc, outside the repo) | candidate review | |
 
-No model output is presented to end users of the system, and the system has no
-AI feature: prices come from simulation and are checked against a closed form
-by deterministic tests.
+The system has no AI feature: prices come from simulation and are checked
+against a closed form by deterministic tests. The console's interface copy was
+drafted with AI assistance, and its footer says so.
