@@ -12,7 +12,7 @@ committed `results-*.json` files.
 | 3 | Replay | PASS: `bit-identical` |
 | 4 | Bundle + offline `verify.py` | PASS: `bit-identical` |
 | 5 | Benchmarks | PASS: p95 619.8 ms (< 800), 1M median 1.07 s (< 60) |
-| 6 | Fail-closed (`deployed_failclosed_test.py`) | NOT RUN: needs Paawan's OK |
+| 6 | Fail-closed (`deployed_failclosed_test.py`) | PASS: 504 `qrypt_timeout`, no job created, config restored |
 | 7 | DLQ alarm | NOT RUN: needs an apply with fault injection |
 
 ## 2. The 1M-path job (23:04:51Z, after the User-Agent fix)
@@ -55,6 +55,20 @@ verdict `bit-identical`. `verify.py` on the bundle, run on an x86_64 machine
   Black-Scholes (z from −2.07 to +0.65).
 
 Entropy used after all checks: 60 KiB of the 5,000 KiB ceiling.
+
+## 6. Fail-closed test (23:08:49Z–23:09:02Z, approved by Paawan)
+
+`deployed_failclosed_test.py --function qmc-dev-api` pointed the API at a
+non-routable Qrypt address, submitted, then restored the saved environment:
+
+```
+http_status 504, error entropy_unavailable, cause qrypt_timeout,
+qrypt_status null, job_created false, new_jobs [], latency 6369 ms
+PASS: rejected, no job created
+```
+
+Afterwards `QRYPT_ENTROPY_URL` read back as the default endpoint and a 1,000-path
+job completed normally.
 
 ## Earlier attempts, and the cause
 
