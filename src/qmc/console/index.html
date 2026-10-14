@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Qrypt MC Console</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div class="demo-banner" role="note">Demo — synthetic data only</div>
+  <header class="top">
+    <a class="brand" href="#/jobs">Monte Carlo console</a>
+    <nav id="nav" hidden>
+      <a href="#/jobs" data-nav="jobs">Jobs</a>
+      <a href="#/new" data-nav="new">New job</a>
+      <a href="#/system" data-nav="system">System</a>
+      <button type="button" id="disconnect" class="link">Disconnect</button>
+    </nav>
+  </header>
+  <div id="status-strip" class="status-strip" hidden></div>
+  <main id="view" tabindex="-1" aria-live="polite"></main>
+  <footer class="foot">
+    Seeds come from Qrypt quantum entropy: externally attestable seed provenance.
+    The API is protected by an application-layer key check on a public endpoint.
+    Interface copy was drafted with AI assistance.
+  </footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -200,3 +200,31 @@ def test_unhandled_exception_is_500_without_detail(aws, monkeypatch, capsys):
     status, body, _ = call(app, "GET", "/jobs")
     assert status == 500 and body == {"error": "internal_error", "message": "unexpected server error"}
     assert "ZeroDivision" not in capsys.readouterr().out
+
+
+def test_console_served_without_key_with_noindex_and_csp(aws):
+    app = make_app()
+    resp = app.handle(fn_url_event("GET", "/", key=None), CTX)
+    assert resp["statusCode"] == 200 and resp["headers"]["Content-Type"].startswith("text/html")
+    assert 'name="robots" content="noindex' in resp["body"] and "Demo — synthetic data only" in resp["body"]
+    assert "script-src 'self'" in resp["headers"]["Content-Security-Policy"]
+    assert resp["headers"]["X-Robots-Tag"].startswith("noindex")
+    for path, ctype in (("/static/app.js", "text/javascript"), ("/static/app.css", "text/css")):
+        r = app.handle(fn_url_event("GET", path, key=None), CTX)
+        assert r["statusCode"] == 200 and r["headers"]["Content-Type"] == ctype
+
+
+@pytest.mark.parametrize("path", ["/static/../handlers/api.py", "/static/nope.js", "/static/../../build_info.json"])
+def test_static_cannot_escape_console_dir(aws, path):
+    resp = make_app().handle(fn_url_event("GET", path, key=None), CTX)
+    assert resp["statusCode"] == 404
+
+
+def test_console_has_no_third_party_scripts():
+    from pathlib import Path
+
+    console = Path(__file__).resolve().parent.parent / "src" / "qmc" / "console"
+    html = (console / "index.html").read_text()
+    js = (console / "app.js").read_text()
+    assert "http://" not in html and "https://" not in html
+    assert "innerHTML" not in js and "localStorage" not in js

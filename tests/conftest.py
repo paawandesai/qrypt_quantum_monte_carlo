@@ -36,51 +36,58 @@ class FakeSecrets:
         return self.values[name]
 
 
+def create_resources() -> dict:
+    """Create the tables and queues inside an active moto mock. Returns queue urls."""
+    ddb = boto3.client("dynamodb")
+    ddb.create_table(
+        TableName=TEST_ENV["JOBS_TABLE"],
+        AttributeDefinitions=[
+            {"AttributeName": "job_id", "AttributeType": "S"},
+            {"AttributeName": "status", "AttributeType": "S"},
+            {"AttributeName": "created_at", "AttributeType": "S"},
+        ],
+        KeySchema=[{"AttributeName": "job_id", "KeyType": "HASH"}],
+        GlobalSecondaryIndexes=[
+            {
+                "IndexName": "by_status",
+                "KeySchema": [
+                    {"AttributeName": "status", "KeyType": "HASH"},
+                    {"AttributeName": "created_at", "KeyType": "RANGE"},
+                ],
+                "Projection": {"ProjectionType": "ALL"},
+                "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
+            }
+        ],
+        ProvisionedThroughput={"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
+    )
+    ddb.create_table(
+        TableName=TEST_ENV["SHARDS_TABLE"],
+        AttributeDefinitions=[
+            {"AttributeName": "job_id", "AttributeType": "S"},
+            {"AttributeName": "shard_index", "AttributeType": "N"},
+        ],
+        KeySchema=[
+            {"AttributeName": "job_id", "KeyType": "HASH"},
+            {"AttributeName": "shard_index", "KeyType": "RANGE"},
+        ],
+        ProvisionedThroughput={"ReadCapacityUnits": 10, "WriteCapacityUnits": 10},
+    )
+    sqs = boto3.client("sqs")
+    dlq = sqs.create_queue(QueueName="qmc-test-dlq")["QueueUrl"]
+    q = sqs.create_queue(QueueName="qmc-test-shards")["QueueUrl"]
+    os.environ["SHARD_QUEUE_URL"] = q
+    os.environ["DLQ_URL"] = dlq
+    return {"queue_url": q, "dlq_url": dlq, "sqs": sqs}
+
+
 @pytest.fixture
 def aws(monkeypatch):
     for k, v in TEST_ENV.items():
         monkeypatch.setenv(k, v)
+    monkeypatch.setenv("SHARD_QUEUE_URL", "")
+    monkeypatch.setenv("DLQ_URL", "")
     with mock_aws():
-        ddb = boto3.client("dynamodb")
-        ddb.create_table(
-            TableName=TEST_ENV["JOBS_TABLE"],
-            AttributeDefinitions=[
-                {"AttributeName": "job_id", "AttributeType": "S"},
-                {"AttributeName": "status", "AttributeType": "S"},
-                {"AttributeName": "created_at", "AttributeType": "S"},
-            ],
-            KeySchema=[{"AttributeName": "job_id", "KeyType": "HASH"}],
-            GlobalSecondaryIndexes=[
-                {
-                    "IndexName": "by_status",
-                    "KeySchema": [
-                        {"AttributeName": "status", "KeyType": "HASH"},
-                        {"AttributeName": "created_at", "KeyType": "RANGE"},
-                    ],
-                    "Projection": {"ProjectionType": "ALL"},
-                    "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
-                }
-            ],
-            ProvisionedThroughput={"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
-        )
-        ddb.create_table(
-            TableName=TEST_ENV["SHARDS_TABLE"],
-            AttributeDefinitions=[
-                {"AttributeName": "job_id", "AttributeType": "S"},
-                {"AttributeName": "shard_index", "AttributeType": "N"},
-            ],
-            KeySchema=[
-                {"AttributeName": "job_id", "KeyType": "HASH"},
-                {"AttributeName": "shard_index", "KeyType": "RANGE"},
-            ],
-            ProvisionedThroughput={"ReadCapacityUnits": 10, "WriteCapacityUnits": 10},
-        )
-        sqs = boto3.client("sqs")
-        dlq = sqs.create_queue(QueueName="qmc-test-dlq")["QueueUrl"]
-        q = sqs.create_queue(QueueName="qmc-test-shards")["QueueUrl"]
-        monkeypatch.setenv("SHARD_QUEUE_URL", q)
-        monkeypatch.setenv("DLQ_URL", dlq)
-        yield {"queue_url": q, "dlq_url": dlq, "sqs": sqs}
+        yield create_resources()
 
 
 def fn_url_event(method, path, body=None, key=TEST_BEARER, query=None, headers=None):
