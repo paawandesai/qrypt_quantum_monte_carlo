@@ -357,7 +357,12 @@ Other constraints:
 
 - **Lambda concurrency quota.** The account's quota is 10; reserved concurrency
   of 15 needs at least 115. An increase is requested; until approved, `apply`
-  fails on the reservation. The reservation is never removed to make `apply` pass.
+  fails on the reservation. **Temporary exception, approved by the candidate on
+  2026-10-14:** the dev stack is applied with `-var worker_reserved_concurrency=-1
+  -var api_reserved_concurrency=-1` (no reservation). While the quota is 10, the
+  whole account can run at most 10 executions at once, which is a tighter cap than
+  the planned 15. The SQS `maximum_concurrency` of 5 and the per-job caps stay in
+  place. Once the quota reaches 115, re-apply with the defaults and remove this note.
 - **Qrypt provides no signed receipt.** Provenance proves the seed matches a
   stored block hash; it cannot prove Qrypt produced the block. We describe it as
   externally attestable seed provenance, not "true randomness" or guaranteed
