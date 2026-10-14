@@ -1,0 +1,31 @@
+[project]
+name = "qmc"
+version = "0.1.0"
+description = "Quantum-seeded Monte Carlo option pricing on AWS Lambda"
+requires-python = ">=3.13,<3.14"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
+markers = [
+  "statistical: tests with a stated non-zero expected failure rate",
+]
+
+[tool.coverage.run]
+source = ["qmc"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "RUF"]
+ignore = ["S101"]  # assert is fine in tests
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "B"]

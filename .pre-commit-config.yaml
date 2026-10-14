@@ -1,0 +1,20 @@
+# Install: pip install pre-commit && pre-commit install
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.28.0
+    hooks:
+      - id: gitleaks
+  - repo: local
+    hooks:
+      - id: check-staged
+        name: staged diff secret/PRD grep
+        entry: scripts/check_staged.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+      - id: check-seed-path
+        name: no local entropy in src/
+        entry: scripts/check_seed_path.sh
+        language: script
+        pass_filenames: false
+        always_run: true

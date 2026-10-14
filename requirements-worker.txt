@@ -1,0 +1,3 @@
+# Packaged into the worker Lambda (arm64, Python 3.13). Pinned: the numpy
+# version is part of the replay fingerprint, so changing it changes results.
+numpy==2.5.4
