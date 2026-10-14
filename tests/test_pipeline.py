@@ -192,3 +192,21 @@ def test_bundle_contains_what_verify_needs(env):
 def test_bad_message_is_reported_failed(env):
     out, _ = run_workers(env, [{"messageId": "m1", "body": "not json", "attributes": {}}])
     assert out == {"batchItemFailures": [{"itemIdentifier": "m1"}]}
+
+
+def test_verify_script_recomputes_bundle(env, tmp_path, capsys):
+    import importlib.util
+    from pathlib import Path
+
+    app = make_app()
+    _, body = submit(app)
+    run_workers(env)
+    bundle = app.handle(fn_url_event("GET", f"/jobs/{body['job_id']}/bundle"), CTX)["body"]
+    f = tmp_path / "bundle.json"
+    f.write_text(bundle)
+    root = Path(__file__).resolve().parent.parent
+    spec = importlib.util.spec_from_file_location("verify", root / "scripts" / "verify.py")
+    verify = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(verify)
+    assert verify.main(str(f)) == 0
+    assert "verdict: bit-identical" in capsys.readouterr().out

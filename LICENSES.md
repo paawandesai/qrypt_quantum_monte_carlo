@@ -49,6 +49,7 @@ The api and reconciler zips contain only this repository's code.
 | ruff               | 0.17.0      | MIT                                                |
 | urllib3            | 2.8.0       | MIT                                                |
 | xmltodict          | 1.0.4       | MIT                                                |
+| PyYAML             | 6.0.3       | MIT License                                        |
 | jmespath           | 1.1.0       | MIT License                                        |
 | pluggy             | 1.6.0       | MIT License                                        |
 | six                | 1.17.0      | MIT License                                        |
