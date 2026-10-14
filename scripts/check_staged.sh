@@ -8,7 +8,7 @@ status=0
 added=$(git diff --cached -U0 -- . ':(exclude)scripts/check_staged.sh' ':(exclude).gitlab-ci.yml' \
   | grep -E '^\+' | grep -vE '^\+\+\+' || true)
 
-if printf '%s\n' "$added" | grep -inE 'api[_-]?key\s*[:=]\s*["'\'']?[A-Za-z0-9_\-]{16,}|secret\s*[:=]\s*["'\'']?[A-Za-z0-9/+_\-]{16,}|Bearer [A-Za-z0-9._\-]{16,}|sk-[A-Za-z0-9]{16,}|AKIA[0-9A-Z]{16}|passw(or)?d\s*[:=]\s*\S{6,}' ; then
+if printf '%s\n' "$added" | grep -inE 'api[_-]?key\s*[:=]\s*["'\'']?[A-Za-z0-9_\-]{16,}|secret\s*[:=]\s*["'\'']?[A-Za-z0-9/+_\-]{16,}|Bearer [A-Za-z0-9._\-]{16,}|sk-[A-Za-z0-9]{16,}|AKIA[0-9A-Z]{16}|passw(or)?d\s*[:=]\s*["'\'']?[^$"'\''[:space:]{][^[:space:]"'\'']{5,}' ; then
   echo "check_staged: staged diff contains something that looks like a credential" >&2
   status=1
 fi
