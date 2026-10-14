@@ -31,9 +31,10 @@ carry a `Co-Authored-By: Claude` trailer.
 
 | Artifact | Verified by | Not verified |
 |---|---|---|
-| `src/qmc/**` (all deployed code, including the console) | 137 unit and moto-backed tests (93% line+branch coverage); ruff; the seed-path grep | behaviour on real AWS and against the real Qrypt API (not deployed yet) |
+| `src/qmc/**` (all deployed code, including the console) | 211 unit, moto-backed and adversarial tests (93% line+branch coverage); ruff; the seed-path grep; `terraform apply` succeeded and a second plan shows no drift | behaviour of a real job on AWS and against the real Qrypt API (deployed, but no job run yet) |
+| `eval/adversarial/**` | run green; each case was read for whether it can fail | that the hostile strings cover every attack form |
 | `tests/**` | run green locally; each test was read for whether it can fail (the statistical test is intentionally non-deterministic) | that the test suite covers every edge case the brief lists |
-| `infra/**` (Terraform) | `terraform validate`, `terraform plan` (34 resources, no secret values in plan output), tflint (preset `all`), Checkov (0 failed; every suppression has an inline reason) | `apply`, `destroy`, and the "no drift on second plan" check have not run |
+| `infra/**` (Terraform) | `terraform validate`, `terraform plan` (now 37 resources with the S3 code bucket, no secret values in plan output), tflint (preset `all`), Checkov (0 failed; every suppression has an inline reason) | `apply` succeeded (with reserved concurrency off, see README Known constraints) and a second plan showed no drift; `destroy` has not run |
 | `.gitlab-ci.yml` | GitLab's CI lint API reports it valid; MR and main pipelines ran green on the project runner; auto-cancel observed | the `heavy` lane (no tagged runner), the docs-only skip on main, the OIDC plan/apply jobs (role not created), per-job peak memory |
 | `.pre-commit-config.yaml` | hook timings measured; a deliberate lint error blocked a commit | |
 | `scripts/build.py` | rebuilt twice with byte-identical zips; packaging test | that the arm64 numpy wheel imports on Lambda |

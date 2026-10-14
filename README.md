@@ -183,7 +183,7 @@ yet run against a deployment.
 
 ## How correctness is checked
 
-All by committed tests (`pytest`, 137 tests, 93% line+branch coverage of `src/qmc`;
+All by committed tests (`pytest`, 211 tests including the adversarial set, 93% line+branch coverage of `src/qmc`;
 CI gate 80%). Nothing is verified by a model's say-so.
 
 | Property | Test |
@@ -253,6 +253,19 @@ deployed replay test has run, the deployed claim is **unverified**.
 
 ## Security
 
+- **No model at runtime, and untrusted text stays data**: there is no language
+  model anywhere in submit, workers, aggregation, replay or the console, so no
+  input can steer a model. The untrusted channels are the HTTP request (body,
+  path, query), the Qrypt response, and stored values the console displays.
+  Structural controls: every job field is validated as a bounded number before
+  any entropy is spent; job ids must match a fixed hash format; a Qrypt request
+  id is kept only if it is an opaque token (`[A-Za-z0-9._:-]{1,128}`), otherwise
+  it is stored as null; the console writes values with `textContent`, never
+  `innerHTML`. `eval/adversarial/` holds hostile-text cases for each channel
+  (instruction-like text, HTML/script, SQL and shell metacharacters, template
+  syntax, bidi overrides): all 56 job-field cases (8 strings × 7 fields) are rejected with 400 before
+  any Qrypt call, all hostile path ids get 400/404, and all hostile request ids
+  are dropped.
 - **Secrets**: the Qrypt token and the API bearer key are SSM SecureStrings
   created out of band (CLI or console). Terraform only builds their ARNs from the
   names to scope IAM; there is deliberately **no** `data "aws_ssm_parameter"`,

@@ -39,7 +39,7 @@ variables:
 # ---- change filters -------------------------------------------------------------
 # On the default branch `changes` compares with the previous push; elsewhere
 # with main, so a new branch does not run everything.
-.py_paths: &py_paths [src/**/*, tests/**/*, scripts/**/*, pyproject.toml, requirements-*.txt, requirements-dev.lock, .gitlab-ci.yml]
+.py_paths: &py_paths [src/**/*, tests/**/*, eval/**/*, scripts/**/*, pyproject.toml, requirements-*.txt, requirements-dev.lock, .gitlab-ci.yml]
 .tf_paths: &tf_paths [infra/**/*, .gitlab-ci.yml]
 .dep_paths: &dep_paths [requirements-*.txt, requirements-dev.lock, .gitlab-ci.yml]
 .build_paths: &build_paths [src/**/*, scripts/build.py, requirements-worker.txt, .gitlab-ci.yml]
@@ -97,8 +97,8 @@ lint:
   needs: []
   script:
     - pip install --quiet ruff==0.17.0
-    - ruff check src tests scripts
-    - ruff format --check src tests scripts
+    - ruff check src tests scripts eval
+    - ruff format --check src tests scripts eval
 
 typecheck:
   extends: [.py_image, .rules_py]

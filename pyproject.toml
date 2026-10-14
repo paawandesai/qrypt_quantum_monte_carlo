@@ -5,7 +5,7 @@ description = "Quantum-seeded Monte Carlo option pricing on AWS Lambda"
 requires-python = ">=3.13,<3.14"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "eval/adversarial"]
 pythonpath = ["src", "tests"]
 markers = [
   "statistical: tests with a stated non-zero expected failure rate",

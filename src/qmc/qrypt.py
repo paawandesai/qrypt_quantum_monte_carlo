@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import re
 import socket
 import urllib.error
 import urllib.request
@@ -24,6 +25,9 @@ BLOCK_BYTES = 1024
 
 # Response headers that might carry a request id. Qrypt does not document one;
 # we store whatever is present and null otherwise, never an invented value.
+# A request id is third-party text that is stored and shown in the console and
+# audit bundle, so only an opaque token shape is kept; anything else becomes null.
+REQUEST_ID_RE = re.compile(r"[A-Za-z0-9._:-]{1,128}")
 REQUEST_ID_HEADERS = ("x-request-id", "request-id", "x-correlation-id", "x-amzn-requestid")
 
 STATUS_CAUSES = {
@@ -125,15 +129,10 @@ def parse_response(raw: bytes, headers: dict[str, str] | None = None) -> Entropy
     if len(data) != BLOCK_BYTES:
         raise QryptError("qrypt_bad_response")
 
-    request_id = None
-    headers = headers or {}
-    for name in REQUEST_ID_HEADERS:
-        if headers.get(name):
-            request_id = str(headers[name])[:128]
-            break
-    if request_id is None and isinstance(doc, dict):
-        for key in ("requestId", "request_id", "id"):
-            if isinstance(doc.get(key), str) and doc[key]:
-                request_id = doc[key][:128]
-                break
+    candidates = [headers.get(name) for name in REQUEST_ID_HEADERS] if headers else []
+    if isinstance(doc, dict):
+        candidates += [doc.get(key) for key in ("requestId", "request_id", "id")]
+    request_id = next((str(c) for c in candidates if c), None)
+    if request_id is not None and not REQUEST_ID_RE.fullmatch(request_id):
+        request_id = None
     return EntropyBlock(data=data, request_id=request_id, kib=1)
