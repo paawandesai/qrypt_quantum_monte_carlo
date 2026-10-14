@@ -109,6 +109,13 @@ data "aws_iam_policy_document" "deploy" {
     ]
     resources = ["arn:aws:logs:${local.region}:${local.acct}:log-group:/aws/lambda/${local.p}*"]
   }
+  # DescribeLogGroups is a list call: it does not accept a log-group ARN prefix,
+  # so it is granted on all log groups in the region (read-only).
+  statement {
+    sid       = "LogsDescribe"
+    actions   = ["logs:DescribeLogGroups"]
+    resources = ["arn:aws:logs:${local.region}:${local.acct}:log-group:*"]
+  }
   statement {
     sid = "EventBridge"
     actions = [
