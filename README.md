@@ -154,7 +154,7 @@ terraform -chdir=infra apply                 # fault injection back off
 
 The shard is received 5 times before it reaches the DLQ. After each failure the
 worker releases the message after 10, 20, 30, 40 and 50 s, so it lands in the
-DLQ about 2.5 minutes after submit; CloudWatch can take a few more minutes to
+DLQ about 2.5 minutes after submit (measured on dev 2026-10-15, one run: job `PARTIAL` at 107 s, DLQ depth 1 at 162 s); CloudWatch can take a few more minutes to
 move the alarm. The DLQ is never consumed, so its alarm
 stays in `ALARM` until the queue is purged; purge it before a second recording
 or no new notification is sent.
@@ -286,7 +286,7 @@ That is one job, not a proof for every host.
   less) and `maxReceiveCount` is 5 (AWS's recommended minimum). A shard that
   fails does not wait out the 180 s: the worker sets its visibility to a linear
   backoff (10 s × attempt) with `ChangeMessageVisibility`, so its retries and
-  the move to the DLQ take about 2.5 minutes, not 15. Nothing consumes the DLQ,
+  the move to the DLQ take about 2.5 minutes, not 15 (one measured run: 162 s to the DLQ). Nothing consumes the DLQ,
   so its depth alarm fires. On the last receive the worker records the
   failure, and the job ends `PARTIAL` with `failed_shard_indexes` and
   `shard_errors`. No result is written for a `PARTIAL` job.
