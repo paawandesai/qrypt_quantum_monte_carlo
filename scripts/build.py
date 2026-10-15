@@ -37,11 +37,14 @@ def numpy_pin() -> str:
     raise SystemExit("numpy pin not found in requirements-worker.txt")
 
 
-def add_tree(zf: zipfile.ZipFile, base: Path, arc_prefix: str = "") -> None:
+def add_tree(zf: zipfile.ZipFile, base: Path, arc_prefix: str = "", skip_top: frozenset[str] = frozenset()) -> None:
     files = sorted(
         p
         for p in base.rglob("*")
-        if p.is_file() and not (set(p.relative_to(base).parts) & SKIP_DIRS) and p.suffix != ".pyc"
+        if p.is_file()
+        and not (set(p.relative_to(base).parts) & SKIP_DIRS)
+        and p.relative_to(base).parts[0] not in skip_top
+        and p.suffix != ".pyc"
     )
     for p in files:
         add_bytes(zf, arc_prefix + p.relative_to(base).as_posix(), p.read_bytes(), p.stat().st_mode)
@@ -60,7 +63,10 @@ def build_zip(name: str, info: dict, deps_dir: Path | None) -> Path:
         add_tree(zf, SRC / "qmc", "qmc/")
         add_bytes(zf, "build_info.json", (json.dumps(info, sort_keys=True, indent=2) + "\n").encode())
         if deps_dir:
-            add_tree(zf, deps_dir)
+            # bin/ holds pip's console scripts, whose shebang is the building
+            # interpreter's path; Lambda never runs them, and they made the zip
+            # differ between machines.
+            add_tree(zf, deps_dir, skip_top=frozenset({"bin"}))
     return out
 
 
