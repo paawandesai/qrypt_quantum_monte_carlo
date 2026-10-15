@@ -31,7 +31,7 @@ carry a `Co-Authored-By: Claude` trailer.
 
 | Artifact | Verified by | Not verified |
 |---|---|---|
-| `src/qmc/**` (all deployed code, including the console) | 222 unit, moto-backed and adversarial tests (93% line+branch coverage); ruff; the seed-path grep; `terraform apply` succeeded and a second plan shows no drift | other regions, other Qrypt endpoints, and load beyond the measured runs; see `bench/deployed-checks-2026-10-14.md` for what ran on AWS against the real Qrypt API |
+| `src/qmc/**` (all deployed code, including the console) | 225 unit, moto-backed and adversarial tests (93% line+branch coverage); ruff; the seed-path grep; `terraform apply` succeeded and a second plan shows no drift | other regions, other Qrypt endpoints, and load beyond the measured runs; see `bench/deployed-checks-2026-10-14.md` for what ran on AWS against the real Qrypt API |
 | `eval/adversarial/**` | run green; each case was read for whether it can fail | that the hostile strings cover every attack form |
 | `tests/**` | run green locally; each test was read for whether it can fail (the statistical test is intentionally non-deterministic) | that the test suite covers every edge case the brief lists |
 | `infra/**` (Terraform) | `terraform validate`, `terraform plan` (39 resources with the S3 code bucket, no secret values in plan output), tflint (preset `all`), Checkov (0 failed; every suppression has an inline reason) | `apply` succeeded (first without reservations, re-applied with them on 2026-10-15) and a second plan showed no drift; a throwaway stack was applied from empty (85 s) and destroyed cleanly (123 s) on 2026-10-15; the dev stack itself has not been destroyed (planned after grading) |

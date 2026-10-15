@@ -174,6 +174,8 @@ resource "aws_lambda_function" "worker" {
       JOBS_TABLE             = var.jobs_table_name
       SHARDS_TABLE           = var.shards_table_name
       MAX_RECEIVE_COUNT      = tostring(var.max_receive_count)
+      SHARD_QUEUE_URL        = aws_sqs_queue.shards.url # for ChangeMessageVisibility on a failed shard
+      RETRY_BACKOFF_S        = "10"
       ENABLE_FAULT_INJECTION = tostring(var.fault_injection)
       OPENBLAS_NUM_THREADS   = "1"
     }

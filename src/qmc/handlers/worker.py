@@ -4,6 +4,12 @@ Writes {sum, sum_sq, n} for its shard with a conditional put, so a duplicate
 delivery never double-counts. On the last allowed receive a failure is recorded
 on the job (so it ends PARTIAL, never COMPLETE with a wrong total) and the
 message is returned as failed, which sends it to the dead-letter queue.
+
+A failed message is not left to wait out the queue's full visibility timeout
+(180 s, sized for throttled and in-flight work): the worker shortens it to a
+backoff of RETRY_BACKOFF_S x attempt (10, 20, 30, 40 s by default), so the
+retries, and the move to the DLQ after the last one, take about two minutes
+instead of fifteen. The receive count, and so the DLQ rule, is unchanged.
 """
 
 from __future__ import annotations
@@ -36,6 +42,27 @@ def _store() -> Store:
 
 def max_receives() -> int:
     return int(os.environ.get("MAX_RECEIVE_COUNT", "3"))
+
+
+def retry_delay_s(receive_count: int) -> int:
+    """Visibility (s) for a failed message before its next receive: linear backoff."""
+    base = int(os.environ.get("RETRY_BACKOFF_S", "10"))
+    return max(0, min(base * receive_count, 43_200))
+
+
+def release_for_retry(store: Store, record: dict, receive_count: int) -> None:
+    """Make a failed message visible again after the backoff. Best effort: if this
+    fails, the queue's own visibility timeout still applies."""
+    queue_url = os.environ.get("SHARD_QUEUE_URL")
+    handle = record.get("receiptHandle")
+    if not queue_url or not handle:
+        return
+    try:
+        store.sqs.change_message_visibility(
+            QueueUrl=queue_url, ReceiptHandle=handle, VisibilityTimeout=retry_delay_s(receive_count)
+        )
+    except Exception as exc:
+        log.warn(event="retry_backoff_failed", code=type(exc).__name__)
 
 
 def all_accounted(job: dict) -> bool:
@@ -101,4 +128,5 @@ def handler(event, context):
             process(store, msg, receive_count)
         except Exception:
             failures.append({"itemIdentifier": record["messageId"]})
+            release_for_retry(store, record, receive_count)
     return {"batchItemFailures": failures}
