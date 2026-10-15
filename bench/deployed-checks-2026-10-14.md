@@ -13,7 +13,7 @@ committed `results-*.json` files.
 | 4 | Bundle + offline `verify.py` | PASS: `bit-identical` |
 | 5 | Benchmarks | PASS: p95 619.8 ms (< 800), 1M median 1.07 s (< 60) |
 | 6 | Fail-closed (`deployed_failclosed_test.py`) | PASS: 504 `qrypt_timeout`, no job created, config restored |
-| 7 | DLQ alarm | NOT RUN: needs an apply with fault injection |
+| 7 | DLQ alarm | PASS: real failing worker, job `PARTIAL`, both alarms fired (2026-10-15) |
 
 ## 2. The 1M-path job (23:04:51Z, after the User-Agent fix)
 
@@ -69,6 +69,23 @@ PASS: rejected, no job created
 
 Afterwards `QRYPT_ENTROPY_URL` read back as the default endpoint and a 1,000-path
 job completed normally.
+
+## 7. DLQ alarm (2026-10-15, approved by Paawan)
+
+The build thread applied `enable_fault_injection=true` at 13:17Z. Job
+`d452c4a791c519a5e602296d7ac23ba9` (20,000 paths, 2 shards, `fail_shards: [0]`)
+was submitted at 13:18:43Z. Shard 0 raised `InjectedFault` in the real worker on
+every delivery; nothing was published to SNS by hand.
+
+| time (UTC) | event |
+|---|---|
+| 13:20:44 | job `PARTIAL`: shard 1 done, shard 0 failed (`InjectedFault`) |
+| 13:21:42 | alarm `qmc-dev-shard-failures` → ALARM |
+| ~13:22 | DLQ depth 1 (after `maxReceiveCount` = 3 deliveries) |
+| 13:24:54 | alarm `qmc-dev-dlq-depth` → ALARM |
+
+Submit to DLQ alarm: about 6 minutes. The job never reported `COMPLETE`. The DLQ is
+never consumed, so its alarm stays in ALARM until the message expires or is purged.
 
 ## Earlier attempts, and the cause
 

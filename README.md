@@ -12,7 +12,7 @@ Status (2026-10-14): code, tests and Terraform are complete and `terraform plan`
 is clean. Deployed to a dev stack on 2026-10-14 with reserved concurrency
 temporarily off while the Lambda concurrency quota increase is pending (see
 [Known constraints](#known-constraints)). The 1M-path job, replay and benchmarks
-have been measured there, and the fail-closed test passed; the DLQ alarm test has not run.
+have been measured there, and the fail-closed and DLQ alarm tests passed.
 
 ## Contents
 
@@ -209,7 +209,8 @@ Run on 2026-10-14 (details and job ids in `bench/deployed-checks-2026-10-14.md`)
 the 1M-path job gave 10.453436 (SE 0.014719, z = +0.19 against 10.450584), and
 its replay and the offline `verify.py` both came out `bit-identical` on the
 float64 hex of estimate, SE and CI bounds. The fail-closed test passed (504
-`qrypt_timeout`, no job created). The DLQ alarm test has not run yet. The first attempts were all rejected because Qrypt's
+`qrypt_timeout`, no job created), and a fault-injected shard ended its job
+`PARTIAL` and tripped the shard-failure and DLQ-depth alarms. The first attempts were all rejected because Qrypt's
 Cloudflare front blocks urllib's default User-Agent; fixed in bb71747.
 
 ### Is replay really bit-identical?
@@ -411,7 +412,7 @@ Other constraints:
 ## What this system does not do
 
 - It runs without reserved concurrency for now (see the concurrency quota),
-  and the deployed DLQ alarm test has not run.
+  and the alarm email was not checked from here (only the alarm states).
 - It prices one product: a European call under Black-Scholes GBM. No portfolio
   VaR, no other payoffs, no variance reduction.
 - It does not queue jobs when Qrypt is down (`PENDING_ENTROPY` is a stretch not
