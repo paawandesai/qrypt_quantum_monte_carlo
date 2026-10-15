@@ -253,6 +253,10 @@ console-smoke:
     entrypoint: [""]
   interruptible: false
   resource_group: aws-dev
+  variables:
+    # tf-init.sh exports these only inside its own process; plan/apply need them too.
+    TF_HTTP_USERNAME: gitlab-ci-token
+    TF_HTTP_PASSWORD: $CI_JOB_TOKEN
   id_tokens:
     AWS_ID_TOKEN:
       aud: sts.amazonaws.com
