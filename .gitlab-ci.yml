@@ -298,9 +298,14 @@ plan:
   script:
     # -detailed-exitcode: 0 = no changes, 2 = changes. On the nightly schedule a
     # change means drift, so the job fails; on a push it is the plan for apply.
-    - set +e; $TIME terraform -chdir=infra plan -input=false -lock-timeout=60s -detailed-exitcode -out=plan.tfplan; rc=$?; set -e
-    - if [ "$rc" = 1 ]; then exit 1; fi
-    - if [ "$rc" = 2 ] && [ "$CI_PIPELINE_SOURCE" = "schedule" ]; then echo "DRIFT: live infrastructure differs from main" >&2; exit 1; fi
+    - |
+      rc=0
+      $TIME terraform -chdir=infra plan -input=false -lock-timeout=60s -detailed-exitcode -out=plan.tfplan || rc=$?
+      if [ "$rc" = 1 ]; then exit 1; fi
+      if [ "$rc" = 2 ] && [ "$CI_PIPELINE_SOURCE" = "schedule" ]; then
+        echo "DRIFT - the live stack differs from main" >&2
+        exit 1
+      fi
   artifacts:
     paths: [infra/plan.tfplan]
     expire_in: 1 day
