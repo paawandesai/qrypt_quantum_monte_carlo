@@ -39,15 +39,25 @@ variable "lambda_zip_dir" {
 }
 
 variable "worker_reserved_concurrency" {
-  description = "Reserved concurrency for the worker. Caps parallel spend; requires the account quota to leave 100 unreserved."
+  description = "Reserved concurrency for the worker. Caps parallel spend; requires the account quota to leave 100 unreserved. -1 = no reservation (temporary exception only while the account quota is below 115; see README Known constraints)."
   type        = number
   default     = 10
+
+  validation {
+    condition     = var.worker_reserved_concurrency == -1 || var.worker_reserved_concurrency >= 1
+    error_message = "worker_reserved_concurrency must be -1 (no reservation) or >= 1."
+  }
 }
 
 variable "api_reserved_concurrency" {
-  description = "Reserved concurrency for the API. The only throttle a Function URL has (max ~10x this in requests/second)."
+  description = "Reserved concurrency for the API. The only throttle a Function URL has (max ~10x this in requests/second). -1 = no reservation (temporary exception only; see README)."
   type        = number
   default     = 5
+
+  validation {
+    condition     = var.api_reserved_concurrency == -1 || var.api_reserved_concurrency >= 1
+    error_message = "api_reserved_concurrency must be -1 (no reservation) or >= 1."
+  }
 }
 
 variable "worker_max_concurrency" {

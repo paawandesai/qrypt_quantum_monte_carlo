@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import re
 import socket
 import urllib.error
 import urllib.request
@@ -21,9 +22,15 @@ from typing import Protocol
 
 DEFAULT_URL = "https://api-eus.qrypt.com/api/v1/quantum-entropy"
 BLOCK_BYTES = 1024
+# Qrypt sits behind Cloudflare, which answers urllib's default User-Agent
+# ("Python-urllib/3.x") with 403 "error code: 1010". Identify the client instead.
+USER_AGENT = "qrypt-monte-carlo/0.1"
 
 # Response headers that might carry a request id. Qrypt does not document one;
 # we store whatever is present and null otherwise, never an invented value.
+# A request id is third-party text that is stored and shown in the console and
+# audit bundle, so only an opaque token shape is kept; anything else becomes null.
+REQUEST_ID_RE = re.compile(r"[A-Za-z0-9._:-]{1,128}")
 REQUEST_ID_HEADERS = ("x-request-id", "request-id", "x-correlation-id", "x-amzn-requestid")
 
 STATUS_CAUSES = {
@@ -38,7 +45,7 @@ STATUS_CAUSES = {
 CAUSE_MESSAGES = {
     "qrypt_bad_request": "Qrypt rejected the entropy request as malformed (400).",
     "qrypt_unauthorized": "Qrypt token is invalid or expired (401).",
-    "qrypt_allotment_exhausted": "Qrypt entropy allotment for this period is used up (403).",
+    "qrypt_allotment_exhausted": "Qrypt refused the request (403): forbidden, or the entropy quota is used up.",
     "qrypt_rate_limited": "Qrypt rate limit hit (429): more than 30 requests in 10 seconds.",
     "qrypt_internal_error": "Qrypt returned an internal error (500).",
     "qrypt_entropy_unavailable": "Qrypt entropy supply is temporarily insufficient (503).",
@@ -91,7 +98,11 @@ class QryptClient:
 
         req = urllib.request.Request(  # noqa: S310 - fixed https URL from config
             f"{self._url}?size=1",
-            headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
+            headers={
+                "Accept": "application/json",
+                "Authorization": f"Bearer {token}",
+                "User-Agent": USER_AGENT,
+            },
             method="GET",
         )
         try:
@@ -125,15 +136,10 @@ def parse_response(raw: bytes, headers: dict[str, str] | None = None) -> Entropy
     if len(data) != BLOCK_BYTES:
         raise QryptError("qrypt_bad_response")
 
-    request_id = None
-    headers = headers or {}
-    for name in REQUEST_ID_HEADERS:
-        if headers.get(name):
-            request_id = str(headers[name])[:128]
-            break
-    if request_id is None and isinstance(doc, dict):
-        for key in ("requestId", "request_id", "id"):
-            if isinstance(doc.get(key), str) and doc[key]:
-                request_id = doc[key][:128]
-                break
+    candidates = [headers.get(name) for name in REQUEST_ID_HEADERS] if headers else []
+    if isinstance(doc, dict):
+        candidates += [doc.get(key) for key in ("requestId", "request_id", "id")]
+    request_id = next((str(c) for c in candidates if c), None)
+    if request_id is not None and not REQUEST_ID_RE.fullmatch(request_id):
+        request_id = None
     return EntropyBlock(data=data, request_id=request_id, kib=1)

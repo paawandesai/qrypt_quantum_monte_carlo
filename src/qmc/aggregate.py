@@ -34,7 +34,7 @@ class Result:
         return {f: getattr(self, f).hex() for f in self.HEX_FIELDS}
 
     def to_record(self) -> dict:
-        rec = {"n": self.n}
+        rec: dict[str, int | str] = {"n": self.n}
         for f in self.HEX_FIELDS:
             rec[f"{f}_hex"] = getattr(self, f).hex()
             rec[f] = repr(getattr(self, f))  # display; hex is authoritative

@@ -65,6 +65,13 @@ data "aws_iam_policy_document" "deploy" {
       values   = ["arn:aws:lambda:${local.region}:${local.acct}:function:${local.p}*"]
     }
   }
+  # Tagging an event-source mapping at creation has no function ARN to match
+  # the condition above, so tag actions get their own unconditioned statement.
+  statement {
+    sid       = "EventSourceMappingTags"
+    actions   = ["lambda:TagResource", "lambda:UntagResource", "lambda:ListTags"]
+    resources = ["arn:aws:lambda:${local.region}:${local.acct}:event-source-mapping:*"]
+  }
   statement {
     sid = "Roles"
     actions = [
@@ -108,6 +115,38 @@ data "aws_iam_policy_document" "deploy" {
       "logs:DescribeLogGroups", "logs:ListTagsForResource", "logs:TagResource", "logs:UntagResource",
     ]
     resources = ["arn:aws:logs:${local.region}:${local.acct}:log-group:/aws/lambda/${local.p}*"]
+  }
+  # DescribeLogGroups is a list call: it does not accept a log-group ARN prefix,
+  # so it is granted on all log groups in the region (read-only).
+  statement {
+    sid       = "LogsDescribe"
+    actions   = ["logs:DescribeLogGroups"]
+    resources = ["*"]
+  }
+  statement {
+    sid = "S3Code"
+    actions = [
+      "s3:CreateBucket",
+      "s3:DeleteBucket",
+      "s3:ListBucket",
+      "s3:GetBucket*",
+      "s3:PutBucket*",
+      "s3:DeleteBucketPolicy",
+      "s3:GetAccelerateConfiguration",
+      "s3:GetEncryptionConfiguration",
+      "s3:PutEncryptionConfiguration",
+      "s3:GetLifecycleConfiguration",
+      "s3:PutLifecycleConfiguration",
+      "s3:GetReplicationConfiguration",
+      "s3:PutObject",
+      "s3:GetObject",
+      "s3:GetObjectVersion",
+      "s3:GetObjectTagging",
+      "s3:DeleteObject",
+      "s3:DeleteObjectVersion",
+      "s3:ListBucketVersions",
+    ]
+    resources = ["arn:aws:s3:::${local.p}*", "arn:aws:s3:::${local.p}*/*"]
   }
   statement {
     sid = "EventBridge"

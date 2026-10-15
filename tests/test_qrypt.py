@@ -52,6 +52,8 @@ def test_success_requests_one_kib_with_bearer(monkeypatch):
     assert seen["url"].endswith("?size=1")
     assert seen["headers"]["Authorization"] == "Bearer tok"
     assert seen["headers"]["Accept"] == "application/json"
+    assert seen["headers"]["User-agent"] == "qrypt-monte-carlo/0.1"
+    assert "urllib" not in seen["headers"]["User-agent"].lower()
     assert seen["timeout"] == 2
 
 

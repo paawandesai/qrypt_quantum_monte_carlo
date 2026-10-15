@@ -81,6 +81,67 @@ resource "aws_iam_role_policy" "worker" {
   policy = data.aws_iam_policy_document.worker.json
 }
 
+# The worker zip (numpy, ~16 MB) is uploaded through S3. Inline upload fails in
+# the AWS provider ("decomposing request: bufio.Scanner: token too long") for a
+# body this large. The bucket holds build output only, never job data.
+data "aws_caller_identity" "current" {}
+
+resource "aws_s3_bucket" "code" {
+  #checkov:skip=CKV_AWS_18:Access logging would need a second bucket; this one holds only reproducible build zips.
+  #checkov:skip=CKV_AWS_21:No versioning: every zip is rebuilt byte-identically from git, and the key is overwritten in place.
+  #checkov:skip=CKV_AWS_144:Cross-region replication doubles storage cost for zips that can be rebuilt from git.
+  #checkov:skip=CKV_AWS_145:SSE-S3 (AWS-owned keys) instead of a CMK to keep KMS at $0; contents are public-source build output.
+  #checkov:skip=CKV2_AWS_62:No consumers for bucket event notifications.
+  # Bucket names are global; a hash of the account id makes this one unique
+  # without putting the account id itself in the name.
+  bucket        = "${var.name}-code-${substr(sha256(data.aws_caller_identity.current.account_id), 0, 10)}"
+  force_destroy = true
+}
+
+resource "aws_s3_bucket_public_access_block" "code" {
+  bucket                  = aws_s3_bucket.code.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "code" {
+  bucket = aws_s3_bucket.code.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "code" {
+  bucket = aws_s3_bucket.code.id
+  rule {
+    id     = "abort-incomplete-uploads"
+    status = "Enabled"
+    filter {}
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
+}
+
+resource "aws_s3_object" "worker_zip" {
+  bucket      = aws_s3_bucket.code.id
+  key         = "worker.zip"
+  source      = "${var.zip_dir}/worker.zip"
+  source_hash = filemd5("${var.zip_dir}/worker.zip")
+
+  # No tags on the object: tagging needs s3:PutObjectTagging, which the deployer
+  # does not otherwise need; the bucket itself carries the default tags.
+  override_provider {
+    default_tags {
+      tags = {}
+    }
+  }
+}
+
 resource "aws_lambda_function" "worker" {
   #checkov:skip=CKV_AWS_117:No VPC: the function only calls AWS APIs; a VPC would need a NAT gateway or endpoints, neither free.
   #checkov:skip=CKV_AWS_116:Failed shard messages already go to the SQS DLQ via the queue's redrive policy (async DLQ does not apply to SQS event sources).
@@ -92,7 +153,8 @@ resource "aws_lambda_function" "worker" {
   runtime                        = "python3.13"
   architectures                  = ["arm64"]
   handler                        = "qmc.handlers.worker.handler"
-  filename                       = "${var.zip_dir}/worker.zip"
+  s3_bucket                      = aws_s3_object.worker_zip.bucket
+  s3_key                         = aws_s3_object.worker_zip.key
   source_code_hash               = filebase64sha256("${var.zip_dir}/worker.zip")
   memory_size                    = var.worker_memory_mb
   timeout                        = var.worker_timeout_s

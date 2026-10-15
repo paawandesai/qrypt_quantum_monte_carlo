@@ -9,9 +9,10 @@ aggregates to a price with a 95% confidence interval, and can be **replayed**
 from its stored seed to recompute the same float64 result.
 
 Status (2026-10-14): code, tests and Terraform are complete and `terraform plan`
-is clean. **Not yet deployed**: the first `apply` waits for the account's Lambda
-concurrency quota increase (see [Known constraints](#known-constraints)). All
-deployed measurements below are therefore still marked _not yet measured_.
+is clean. Deployed to a dev stack on 2026-10-14 with reserved concurrency
+temporarily off while the Lambda concurrency quota increase is pending (see
+[Known constraints](#known-constraints)). The 1M-path job, replay and benchmarks
+have been measured there, and the fail-closed and DLQ alarm tests passed.
 
 ## Contents
 
@@ -55,7 +56,7 @@ Terraform layout (`infra/`): one root module and five child modules.
 | Module | Creates |
 |---|---|
 | `data` | `jobs` table (+ `by_status` GSI) and `shards` table, provisioned capacity, TTL 7 days |
-| `workers` | shard queue + DLQ (redrive, maxReceiveCount 3), worker function + role + log group, SQS event-source mapping, reconciler function + role + log group + 5-minute EventBridge rule |
+| `workers` | shard queue + DLQ (redrive, maxReceiveCount 3), private S3 bucket for the worker zip, worker function + role + log group, SQS event-source mapping, reconciler function + role + log group + 5-minute EventBridge rule |
 | `api` | api function + role + log group, Function URL, the two URL resource-policy statements |
 | `observability` | SNS topic + policy + email subscription, 5 alarms, dashboard |
 | `budget` | $1/month AWS Budget (alerts at any actual spend and at 100% forecast) |
@@ -183,7 +184,7 @@ yet run against a deployment.
 
 ## How correctness is checked
 
-All by committed tests (`pytest`, 137 tests, 93% line+branch coverage of `src/qmc`;
+All by committed tests (`pytest`, 211 tests including the adversarial set, 93% line+branch coverage of `src/qmc`;
 CI gate 80%). Nothing is verified by a model's say-so.
 
 | Property | Test |
@@ -204,6 +205,14 @@ Deployed checks (run after `apply`; results to be committed under `bench/`): a
 `scripts/deployed_failclosed_test.py` (real network failure → rejection, no job
 created), and a fault-injected shard tripping the DLQ alarm and email.
 
+Run on 2026-10-14 (details and job ids in `bench/deployed-checks-2026-10-14.md`):
+the 1M-path job gave 10.453436 (SE 0.014719, z = +0.19 against 10.450584), and
+its replay and the offline `verify.py` both came out `bit-identical` on the
+float64 hex of estimate, SE and CI bounds. The fail-closed test passed (504
+`qrypt_timeout`, no job created), and a fault-injected shard ended its job
+`PARTIAL` and tripped the shard-failure and DLQ-depth alarms. The first attempts were all rejected because Qrypt's
+Cloudflare front blocks urllib's default User-Agent; fixed in bb71747.
+
 ### Is replay really bit-identical?
 
 On the same deployed runtime, yes by construction and by test: the shard seed,
@@ -218,8 +227,11 @@ the numpy version, architecture and a hash of the CPU features it actually ran
 on. A replay is refused if numpy, architecture or algorithm version differ, and
 a result whose shards ran on different CPU-feature sets is flagged
 `runtime_consistent: false`. The verdict is `bit-identical` only when all four
-hex values match; otherwise it says `different` and shows the values. Until the
-deployed replay test has run, the deployed claim is **unverified**.
+hex values match; otherwise it says `different` and shows the values. On the
+deployed stack (2026-10-14) a 1M-path replay matched on all four hex values,
+even though its shards ran on two different CPU-feature sets
+(`runtime_consistent: false`); `verify.py` on an x86_64 machine matched too.
+That is one job, not a proof for every host.
 
 ## Failure handling
 
@@ -253,6 +265,19 @@ deployed replay test has run, the deployed claim is **unverified**.
 
 ## Security
 
+- **No model at runtime, and untrusted text stays data**: there is no language
+  model anywhere in submit, workers, aggregation, replay or the console, so no
+  input can steer a model. The untrusted channels are the HTTP request (body,
+  path, query), the Qrypt response, and stored values the console displays.
+  Structural controls: every job field is validated as a bounded number before
+  any entropy is spent; job ids must match a fixed hash format; a Qrypt request
+  id is kept only if it is an opaque token (`[A-Za-z0-9._:-]{1,128}`), otherwise
+  it is stored as null; the console writes values with `textContent`, never
+  `innerHTML`. `eval/adversarial/` holds hostile-text cases for each channel
+  (instruction-like text, HTML/script, SQL and shell metacharacters, template
+  syntax, bidi overrides): all 56 job-field cases (8 strings × 7 fields) are rejected with 400 before
+  any Qrypt call, all hostile path ids get 400/404, and all hostile request ids
+  are dropped.
 - **Secrets**: the Qrypt token and the API bearer key are SSM SecureStrings
   created out of band (CLI or console). Terraform only builds their ARNs from the
   names to scope IAM; there is deliberately **no** `data "aws_ssm_parameter"`,
@@ -306,6 +331,7 @@ replaced by measured values.
 | SNS | a handful of alarm publishes + emails | 1M publishes, 1,000 emails | |
 | EventBridge | scheduled rule, 8,640 invocations | scheduled rules are not charged | |
 | SSM Parameter Store | 2 standard parameters, standard throughput | no charge | |
+| S3 | one private bucket holding the ~16 MB worker zip (needed because the AWS provider cannot upload a zip this large inline); a PUT per code change and a GET per deploy | 5 GB, 2,000 PUTs and 20,000 GETs for the first 12 months only; after that about $0.0004/month | not always-free |
 | Budgets | 1 budget created by Terraform (+1 created in the console) | first 2 budgets free | |
 
 Not used, because none is always-free: NAT gateways, load balancers, EC2, RDS,
@@ -328,8 +354,8 @@ nothing stubbed. Raw JSON lands in `bench/`.
 
 | Target | Value | Result |
 |---|---|---|
-| Submit latency, warm, 50 submissions | < 800 ms p95 | _not yet measured_ (cold start reported separately) |
-| 1M paths submit → `COMPLETE`, 5 runs | < 60 s | _not yet measured_ |
+| Submit latency, warm, 50 submissions | < 800 ms p95 | **619.8 ms p95**, 325.1 ms p50, 739.6 ms max; first request 561.7 ms (2026-10-14, client in a us-east cloud container) |
+| 1M paths submit → `COMPLETE`, 5 runs | < 60 s | **1.07 s median**, 1.4 s max; all 5 `COMPLETE`, all within 3 SE of Black-Scholes (worst z = −2.07) |
 | `terraform apply` from empty | < 10 min | _not yet measured_ |
 | Steady-state cost at 100 jobs/day | $0 | arithmetic above; durations to be replaced with measured values |
 
@@ -357,7 +383,12 @@ Other constraints:
 
 - **Lambda concurrency quota.** The account's quota is 10; reserved concurrency
   of 15 needs at least 115. An increase is requested; until approved, `apply`
-  fails on the reservation. The reservation is never removed to make `apply` pass.
+  fails on the reservation. **Temporary exception, approved by the candidate on
+  2026-10-14:** the dev stack is applied with `-var worker_reserved_concurrency=-1
+  -var api_reserved_concurrency=-1` (no reservation). While the quota is 10, the
+  whole account can run at most 10 executions at once, which is a tighter cap than
+  the planned 15. The SQS `maximum_concurrency` of 5 and the per-job caps stay in
+  place. Once the quota reaches 115, re-apply with the defaults and remove this note.
 - **Qrypt provides no signed receipt.** Provenance proves the seed matches a
   stored block hash; it cannot prove Qrypt produced the block. We describe it as
   externally attestable seed provenance, not "true randomness" or guaranteed
@@ -380,8 +411,8 @@ Other constraints:
 
 ## What this system does not do
 
-- It does not deploy itself yet (see the concurrency quota), and no deployed
-  benchmark, replay or alarm test has run.
+- It runs without reserved concurrency for now (see the concurrency quota),
+  and the alarm email was not checked from here (only the alarm states).
 - It prices one product: a European call under Black-Scholes GBM. No portfolio
   VaR, no other payoffs, no variance reduction.
 - It does not queue jobs when Qrypt is down (`PENDING_ENTROPY` is a stretch not
@@ -412,9 +443,12 @@ infra/                Terraform root module and modules/
 python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.lock
 pytest --cov                      # unit + moto-backed handler tests
 ruff check src tests scripts
+mypy                              # typecheck src/qmc
 scripts/check_seed_path.sh        # no local entropy in src/
 python scripts/build.py           # reproducible zips
-pip install pre-commit && pre-commit install   # gitleaks + staged-diff checks
+pre-commit install --hook-type pre-commit --hook-type pre-push
+# pre-commit (~1 s, staged files): ruff, gitleaks, credential/PRD check, seed grep, terraform fmt
+# pre-push (~15 s warm): mypy + full unit suite. Never bypass with --no-verify.
 ```
 
 AI assistance is disclosed in [AI_USAGE.md](AI_USAGE.md); licenses in [LICENSES.md](LICENSES.md).

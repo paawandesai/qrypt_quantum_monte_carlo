@@ -1,0 +1,53 @@
+{
+  "runs": 5,
+  "max_s": 1.4,
+  "median_s": 1.07,
+  "results": [
+    {
+      "job_id": "90e727457d2e869d3a95ae2d73d16926",
+      "final_status": "COMPLETE",
+      "seconds_submit_to_final": 0.74,
+      "estimate": "10.452991429405326",
+      "std_error": "0.014724391557533838",
+      "z_vs_black_scholes": "0.1635284697743364",
+      "within_3_se": true
+    },
+    {
+      "job_id": "e7ca00053bd545ae9fd41413a0e1a162",
+      "final_status": "COMPLETE",
+      "seconds_submit_to_final": 0.45,
+      "estimate": "10.459400203740756",
+      "std_error": "0.01470280359582992",
+      "z_vs_black_scholes": "0.5996564871268667",
+      "within_3_se": true
+    },
+    {
+      "job_id": "eb2ef4cd544b874131680e12208e0ac8",
+      "final_status": "COMPLETE",
+      "seconds_submit_to_final": 1.4,
+      "estimate": "10.460090085477413",
+      "std_error": "0.014722058761010829",
+      "z_vs_black_scholes": "0.6457326007300508",
+      "within_3_se": true
+    },
+    {
+      "job_id": "12b3dd359463f6c47f0ec683de2fbdba",
+      "final_status": "COMPLETE",
+      "seconds_submit_to_final": 1.07,
+      "estimate": "10.420083376632489",
+      "std_error": "0.014701813436192111",
+      "z_vs_black_scholes": "-2.0745873075761003",
+      "within_3_se": true
+    },
+    {
+      "job_id": "a5f589069376f75a8c80c524468e86e9",
+      "final_status": "COMPLETE",
+      "seconds_submit_to_final": 1.1,
+      "estimate": "10.452009115253828",
+      "std_error": "0.014713225591606035",
+      "z_vs_black_scholes": "0.09688854829200462",
+      "within_3_se": true
+    }
+  ],
+  "measured_at": "20261014T230633Z"
+}
