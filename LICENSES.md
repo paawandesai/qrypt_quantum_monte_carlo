@@ -46,6 +46,8 @@ The api and reconciler zips contain only this repository's code.
 | iniconfig          | 2.3.1       | MIT                                                |
 | pytest             | 9.1.1       | MIT                                                |
 | pytest-cov         | 7.1.0       | MIT                                                |
+| pytest-xdist       | 3.8.0       | MIT                                                |
+| execnet            | 2.1.2       | MIT                                                |
 | ruff               | 0.17.0      | MIT                                                |
 | urllib3            | 2.8.0       | MIT                                                |
 | xmltodict          | 1.0.4       | MIT                                                |

@@ -8,6 +8,7 @@ charset-normalizer==3.5.2
 coverage==7.16.2
 cryptography==50.0.2
 distlib==0.4.3
+execnet==2.1.2
 filelock==4.1.2
 identify==2.6.20
 idna==3.20
@@ -31,6 +32,7 @@ pycparser==3.11
 Pygments==2.21.0
 pytest==9.1.1
 pytest-cov==7.1.0
+pytest-xdist==3.8.0
 python-dateutil==2.9.0.post0
 python-discovery==1.6.2
 PyYAML==6.0.3

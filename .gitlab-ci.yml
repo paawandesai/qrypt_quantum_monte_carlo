@@ -35,6 +35,12 @@ variables:
   GITLAB_PROJECT_ID: $CI_PROJECT_ID
   GITLAB_HOST: $CI_SERVER_HOST
   TF_STATE_NAME: dev
+  # Per-job budget is 2 vCPU / 2 GiB. Go tools (terraform + its provider, tflint +
+  # its plugin, gitleaks) run as up to two Go processes, so the ~1.5 GiB heap cap is
+  # split between them. Python has no heap cap; its peaks are logged instead.
+  GOMEMLIMIT: 750MiB
+  # Wraps a job's heaviest step and prints wall time and peak RSS into the log.
+  PEAK: python3 scripts/peak_mem.py --
 
 # ---- change filters -------------------------------------------------------------
 # On the default branch `changes` compares with the previous push; elsewhere
@@ -97,7 +103,7 @@ lint:
   needs: []
   script:
     - pip install --quiet ruff==0.17.0
-    - ruff check src tests scripts eval
+    - $PEAK ruff check src tests scripts eval
     - ruff format --check src tests scripts eval
 
 typecheck:
@@ -106,7 +112,7 @@ typecheck:
   needs: []
   script:
     - pip install --quiet mypy==2.4.0 numpy==2.5.4
-    - mypy
+    - $PEAK mypy
 
 # Dependencies: the full dev venv is 316 MB, over this instance's artifact size
 # limit (413 on upload), so jobs that need it re-install from the lockfile with
@@ -121,8 +127,9 @@ unit-tests:
     paths: [.cache/pip]
     policy: pull-push
   script:
-    - python -m venv .venv && .venv/bin/pip install --quiet -r requirements-dev.lock
-    - .venv/bin/python -m pytest -p no:cacheprovider --cov --cov-report=term --cov-report=xml --cov-fail-under=80
+    - python -m venv .venv && $PEAK .venv/bin/pip install --quiet -r requirements-dev.lock
+    # 2 workers = the job's vCPU budget (about 40% faster than one, measured locally).
+    - $PEAK .venv/bin/python -m pytest -p no:cacheprovider -n 2 --cov --cov-report=term --cov-report=xml --cov-fail-under=80
   coverage: '/TOTAL.*\s(\d+(?:\.\d+)?)%/'
   artifacts:
     reports:
@@ -174,7 +181,7 @@ build:
         files: [requirements-worker.txt]
       paths: [build/worker-deps]
   script:
-    - python scripts/build.py
+    - $PEAK python scripts/build.py
     - sha256sum build/*.zip
   artifacts:
     paths: [build/api.zip, build/worker.zip, build/reconciler.zip]
@@ -197,9 +204,11 @@ terraform-validate:
     TF_PLUGIN_CACHE_DIR: "$CI_PROJECT_DIR/.cache/terraform-plugins"
   script:
     - mkdir -p "$TF_PLUGIN_CACHE_DIR"
+    # Peak memory for the Go binary via busybox time, when the image has it.
+    - TIME=""; if busybox time -v true >/dev/null 2>&1; then TIME="busybox time -v"; fi
     - terraform -chdir=infra fmt -check -recursive
     - terraform -chdir=infra init -backend=false -input=false
-    - terraform -chdir=infra validate
+    - $TIME terraform -chdir=infra validate
     - terraform -chdir=infra/bootstrap init -backend=false -input=false
     - terraform -chdir=infra/bootstrap validate
 
@@ -221,7 +230,7 @@ checkov:
   stage: iac
   needs: []
   script:
-    - checkov -d infra --framework terraform --quiet --compact --skip-download
+    - $PEAK checkov -d infra --framework terraform --quiet --compact --skip-download
 
 # ---- heavy lane (off the push path) ---------------------------------------------------
 
@@ -243,7 +252,7 @@ console-smoke:
     - npm install --no-save --silent playwright@1.56.1
     - .venv-e2e/bin/python tests/e2e/local_server.py 8765 &
     - sleep 5
-    - BASE_URL=http://127.0.0.1:8765 QMC_KEY=local-smoke-bearer node tests/e2e/console_smoke.mjs
+    - BASE_URL=http://127.0.0.1:8765 QMC_KEY=local-smoke-bearer .venv-e2e/bin/python scripts/peak_mem.py -- node tests/e2e/console_smoke.mjs
 
 # ---- AWS (OIDC) -------------------------------------------------------------------
 
@@ -269,6 +278,7 @@ console-smoke:
       --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text
       | awk '{print "AWS_ACCESS_KEY_ID="$1" AWS_SECRET_ACCESS_KEY="$2" AWS_SESSION_TOKEN="$3}')
     - scripts/tf-init.sh
+    - TIME=""; if busybox time -v true >/dev/null 2>&1; then TIME="busybox time -v"; fi
 
 plan:
   extends: .aws
@@ -279,7 +289,7 @@ plan:
   variables:
     TF_VAR_alarm_email: $ALARM_EMAIL
   script:
-    - terraform -chdir=infra plan -input=false -lock-timeout=60s -out=plan.tfplan
+    - $TIME terraform -chdir=infra plan -input=false -lock-timeout=60s -out=plan.tfplan
   artifacts:
     paths: [infra/plan.tfplan]
     expire_in: 1 day

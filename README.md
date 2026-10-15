@@ -375,7 +375,7 @@ conflict is recorded here.
 | Correctness test | one test within 3 SE | two tests: fixed-seed deterministic, and fresh-seed statistical with its ~0.27% expected failure rate stated |
 | Fault injection | forced failure for the demo | off by default behind a Terraform variable; when on, a real worker raises |
 | CI provider and OIDC | GitHub repository, GitHub Actions | the repository is on a self-hosted GitLab, so CI is GitLab CI and AWS access in CI uses GitLab OIDC `id_tokens` to assume an IAM role (no long-lived keys). The IAM OIDC provider and the CI role (trusted only for this project's `main` branch, permissions scoped to `qmc-*` resources) are defined in `infra/bootstrap/` and were applied on 2026-10-15 (state name `bootstrap`). `AWS_ROLE_ARN` and `ALARM_EMAIL` are masked, protected CI variables, so `plan` runs on `main` and `apply` is a manual job |
-| CI runners | CI runs on every push | the GitLab instance's only runner is offline, so pipelines currently sit `pending`; every CI check was run locally instead (see the commit history) |
+| CI runners | CI runs on every push | GitLab CI on the project's own shared, self-hosted runner (tagged `heavy` for the browser smoke test, which runs nightly and on demand on MRs); every push-path check runs on each push |
 | Ephemeral per-branch stacks (stretch) | GitHub Actions apply/destroy | not built yet |
 | Step Functions (stretch) | allowed | not used: it would break the $0 target at 100 jobs/day |
 
@@ -448,7 +448,7 @@ scripts/check_seed_path.sh        # no local entropy in src/
 python scripts/build.py           # reproducible zips
 pre-commit install --hook-type pre-commit --hook-type pre-push
 # pre-commit (~1 s, staged files): ruff, gitleaks, credential/PRD check, seed grep, terraform fmt
-# pre-push (~15 s warm): mypy + full unit suite. Never bypass with --no-verify.
+# pre-push (~13 s warm): mypy + full unit suite on 2 workers. Never bypass with --no-verify.
 ```
 
 AI assistance is disclosed in [AI_USAGE.md](AI_USAGE.md); licenses in [LICENSES.md](LICENSES.md).
