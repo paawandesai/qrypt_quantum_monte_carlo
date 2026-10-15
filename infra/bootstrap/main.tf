@@ -38,8 +38,10 @@ resource "aws_iam_role" "ci" {
 }
 
 # Deploy permissions scoped by resource-name prefix. Name-prefix patterns
-# (qmc-*) are used instead of "*"; nothing here grants account-wide access.
+# (qmc-*) are used instead of "*"; the only account-wide grants are two
+# read-only lookups that AWS cannot scope (LogsDescribe, EventSourceMappingGetAfterDelete).
 data "aws_iam_policy_document" "deploy" {
+  #checkov:skip=CKV_AWS_356:Only lambda:GetEventSourceMapping uses Resource "*": Lambda authorizes lookups of a deleted mapping against "*", so destroy cannot finish otherwise. Read-only; logs:DescribeLogGroups is a list call checkov already treats as unrestrictable.
   statement {
     sid = "Lambda"
     actions = [
@@ -123,6 +125,14 @@ data "aws_iam_policy_document" "deploy" {
   statement {
     sid       = "LogsDescribe"
     actions   = ["logs:DescribeLogGroups"]
+    resources = ["*"]
+  }
+  # After deleting a mapping, Terraform polls GetEventSourceMapping until it is
+  # gone, and Lambda authorizes a lookup of a missing mapping against "*", so a
+  # scoped grant turns "deleted" into AccessDenied and destroy fails. Read-only.
+  statement {
+    sid       = "EventSourceMappingGetAfterDelete"
+    actions   = ["lambda:GetEventSourceMapping"]
     resources = ["*"]
   }
   statement {
