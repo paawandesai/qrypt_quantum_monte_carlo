@@ -3,9 +3,10 @@
 #
 # Needs: GITLAB_HOST, GITLAB_PROJECT_ID, and a token with `api` scope in
 # GITLAB_TOKEN (locally) or CI_JOB_TOKEN (in GitLab CI). The state name defaults
-# to the environment (TF_STATE_NAME, e.g. "dev" or a branch slug).
+# to the environment (TF_STATE_NAME, e.g. "dev" or a branch slug). TF_ROOT picks
+# the root module (default "infra"; "infra/bootstrap" for the OIDC stack).
 set -euo pipefail
-cd "$(dirname "$0")/../infra"
+cd "$(dirname "$0")/../${TF_ROOT:-infra}"
 
 : "${GITLAB_HOST:?set GITLAB_HOST}"
 : "${GITLAB_PROJECT_ID:?set GITLAB_PROJECT_ID}"
