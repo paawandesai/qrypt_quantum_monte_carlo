@@ -331,7 +331,11 @@ That is one job, not a proof for every host.
   documented wildcard-principal statements, both required by AWS for a NONE-auth
   Function URL: `lambda:InvokeFunctionUrl` for `Principal: *` scoped by
   `lambda:FunctionUrlAuthType = NONE`, and `lambda:InvokeFunction` for
-  `Principal: *` scoped to invocations via the Function URL. Custom metrics use
+  `Principal: *` scoped to invocations via the Function URL. Creating a NONE-auth
+  URL also makes AWS add two statements of its own with the same conditions
+  (`FunctionURLAllowPublicAccess`, `FunctionURLAllowInvokeAction`); they are not
+  in Terraform and are removed with the function. Ours use different ids so an
+  apply from empty does not collide with them. Custom metrics use
   CloudWatch Embedded Metric Format (log lines), so no `cloudwatch:PutMetricData`
   wildcard is needed at all.
 - **Encryption**: DynamoDB with AWS-owned keys, SQS with SSE-SQS, TLS everywhere.

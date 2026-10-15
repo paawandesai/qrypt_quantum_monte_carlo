@@ -53,11 +53,8 @@ data "aws_iam_policy_document" "deploy" {
     resources = ["arn:aws:lambda:${local.region}:${local.acct}:function:${local.p}*"]
   }
   statement {
-    sid = "EventSourceMappings"
-    actions = [
-      "lambda:CreateEventSourceMapping", "lambda:GetEventSourceMapping", "lambda:UpdateEventSourceMapping",
-      "lambda:DeleteEventSourceMapping", "lambda:TagResource", "lambda:ListTags",
-    ]
+    sid       = "EventSourceMappings"
+    actions   = ["lambda:CreateEventSourceMapping"]
     resources = ["arn:aws:lambda:${local.region}:${local.acct}:event-source-mapping:*"]
     condition {
       test     = "ArnLike"
@@ -65,11 +62,16 @@ data "aws_iam_policy_document" "deploy" {
       values   = ["arn:aws:lambda:${local.region}:${local.acct}:function:${local.p}*"]
     }
   }
-  # Tagging an event-source mapping at creation has no function ARN to match
-  # the condition above, so tag actions get their own unconditioned statement.
+  # Only CreateEventSourceMapping carries a function ARN for the condition above.
+  # Get, update, delete and tagging address a mapping by its UUID, so they get
+  # their own unconditioned statement (without it `terraform destroy` fails while
+  # waiting for the mapping to go away).
   statement {
-    sid       = "EventSourceMappingTags"
-    actions   = ["lambda:TagResource", "lambda:UntagResource", "lambda:ListTags"]
+    sid = "EventSourceMappingsByUuid"
+    actions = [
+      "lambda:GetEventSourceMapping", "lambda:UpdateEventSourceMapping", "lambda:DeleteEventSourceMapping",
+      "lambda:TagResource", "lambda:UntagResource", "lambda:ListTags",
+    ]
     resources = ["arn:aws:lambda:${local.region}:${local.acct}:event-source-mapping:*"]
   }
   statement {
