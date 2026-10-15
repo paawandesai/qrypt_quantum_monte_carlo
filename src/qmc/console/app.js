@@ -316,7 +316,7 @@ async function viewJob(id) {
         el("dt", {}, "Duration"), el("dd", {}, final ? dur(job.created_at, job.completed_at) : `running for ${dur(job.created_at, new Date().toISOString())}`),
         el("dt", {}, "Parameters"), el("dd", {}, `S0 ${p.S0} · K ${p.K} · r ${p.r} · σ ${p.sigma} · T ${p.T} · ${Number(p.paths).toLocaleString()} paths · ${p.shards} shards`)),
       actions),
-    job.status === "PARTIAL" ? el("div", { class: "alert", role: "alert" }, "This job is PARTIAL: some shards failed or never finished, so no price is reported.") : null,
+    job.status === "PARTIAL" ? el("div", { class: "alert warn", role: "alert" }, "This job is PARTIAL: some shards failed or never finished, so no price is reported.") : null,
     resultCard(job), replayComparison(job), shardGrid(job), provenance(job));
   if (!final) pollTimer = setTimeout(() => { if (location.hash === `#/job/${id}`) viewJob(id); }, 2000);
 }

@@ -39,7 +39,7 @@ carry a `Co-Authored-By: Claude` trailer.
 | `.pre-commit-config.yaml` | hook timings measured; a deliberate lint error blocked a commit | |
 | `scripts/build.py` | rebuilt twice with byte-identical zips; packaging test; worker zip compared entry by entry between CI and a local build (only pip's `bin/` scripts differed, now excluded) | that the arm64 numpy wheel imports on Lambda |
 | `scripts/bench.py`, `scripts/deployed_failclosed_test.py`, `scripts/qmc_cli.py` | lint; run against the deployed stack on 2026-10-14/15 (1M-path job, replay, benchmarks, fail-closed, DLQ alarm; results in `bench/`) | runs from networks other than one US cloud container |
-| `src/qmc/console/*` (web console UI and its copy) | Playwright smoke test against a moto-backed local server; screenshots reviewed by the assistant | real browsers other than Chromium; a deployment; accessibility audit beyond keyboard focus and contrast choices |
+| `src/qmc/console/*` (web console UI and its copy) | designed after the build on a Claude Design canvas on the candidate's Forge design system and approved by the candidate on 2026-10-15, then restyled to match; Playwright smoke test against a moto-backed local server; screenshots reviewed by the assistant | real browsers other than Chromium; a deployment; accessibility audit beyond keyboard focus and contrast choices |
 | `scripts/verify.py` | test against a moto-backed job bundle; a real deployed bundle verified `bit-identical` on x86_64 | |
 | README cost arithmetic | arithmetic re-checked by hand | Lambda durations are estimates; AWS free-tier figures not re-checked against current AWS pages from this environment |
 | README and this file | read by the assistant against the guardrails | candidate review pending |
