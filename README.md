@@ -409,7 +409,7 @@ conflict is recorded here.
 
 | Topic | PRD asks | This build does, and why |
 |---|---|---|
-| IAM wildcards | no `*` actions or resources | No `*` in any Action or Resource. Two wildcard **principals** on the Function URL permissions, which AWS requires for `AuthType=NONE`, both condition-scoped (above) |
+| IAM wildcards | no `*` actions or resources | No `*` in any Action or Resource of the three function roles. Two wildcard **principals** on the Function URL permissions, which AWS requires for `AuthType=NONE`, both condition-scoped (above). The CI deploy role (`infra/bootstrap/`) has two read-only `Resource: "*"` grants that AWS cannot scope: `logs:DescribeLogGroups` (a list call) and `lambda:GetEventSourceMapping`. After a mapping is deleted, Terraform polls for it and Lambda authorizes the lookup of a missing mapping against `*`; with the type-scoped ARN `event-source-mapping:*` the poll got AccessDenied and `destroy` failed (rehearsed 2026-10-15). Checkov `CKV_AWS_356` is suppressed inline with that reason |
 | IaC scanner | Checkov or tfsec | Checkov; tfsec is deprecated into Trivy |
 | API auth | `AWS_IAM` or bearer key | bearer key, described as an application-layer key check on a public endpoint that still invokes and bills |
 | Health endpoint | checks DynamoDB and SSM reachability | `DescribeTable` on both tables plus configuration and last-success times. It never decrypts an SSM parameter (that would spend KMS requests on monitoring), so SSM reachability is reported as the last successful key load in that container |
