@@ -315,8 +315,10 @@ That is one job, not a proof for every host.
 ## Cost: the $0 arithmetic
 
 Workload: 100 jobs/day × 1,000,000 paths × 10 shards = 3,000 jobs/month.
-Allowances are the always-free monthly figures, which must be re-checked at
-aws.amazon.com/free before relying on them (last checked: _pending_). Lambda
+Allowances are the always-free monthly figures. Last checked 2026-10-15: the
+Lambda figures (1M requests, 400,000 GB-s) against aws.amazon.com/lambda/pricing,
+and aws.amazon.com/free says 30+ services stay always-free on both the Free and
+Paid plans; the other services' figures were not re-checked against their pages. Lambda
 durations below are **estimates until the benchmarks run**; the table will be
 replaced by measured values.
 

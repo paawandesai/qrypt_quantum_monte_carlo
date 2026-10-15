@@ -62,6 +62,8 @@ def main(path: str) -> int:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
+    if len(sys.argv) != 2 or sys.argv[1] in ("-h", "--help"):
         sys.exit(__doc__)
+    if not Path(sys.argv[1]).is_file():
+        sys.exit(f"no such bundle file: {sys.argv[1]}")
     sys.exit(main(sys.argv[1]))

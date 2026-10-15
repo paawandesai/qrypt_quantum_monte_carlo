@@ -1,7 +1,7 @@
 # Licenses
 
 Audit run with `pip-licenses --from=mixed` (re-run before submission; CI's
-`license-audit` job regenerates it and fails on GPL/AGPL). Last run: 2026-10-14.
+`license-audit` job regenerates it and fails on GPL/AGPL). Last run: 2026-10-15.
 
 ## Packaged into Lambda
 
@@ -36,24 +36,39 @@ The api and reconciler zips contain only this repository's code.
 | responses          | 0.26.3      | Apache-2.0                                         |
 | packaging          | 26.3        | Apache-2.0 OR BSD-2-Clause                         |
 | cryptography       | 50.0.2      | Apache-2.0 OR BSD-3-Clause                         |
+| nodeenv            | 1.11.0      | BSD License                                        |
 | Pygments           | 2.21.0      | BSD-2-Clause                                       |
 | MarkupSafe         | 3.0.4       | BSD-3-Clause                                       |
 | Werkzeug           | 3.1.9       | BSD-3-Clause                                       |
 | idna               | 3.20        | BSD-3-Clause                                       |
 | pycparser          | 3.11        | BSD-3-Clause                                       |
 | numpy              | 2.5.4       | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 |
+| ast_serialize      | 0.13.0      | MIT                                                |
+| cfgv               | 3.5.0       | MIT                                                |
 | charset-normalizer | 3.5.2       | MIT                                                |
+| execnet            | 2.1.2       | MIT                                                |
+| filelock           | 4.1.2       | MIT                                                |
+| identify           | 2.6.20      | MIT                                                |
 | iniconfig          | 2.3.1       | MIT                                                |
+| librt              | 0.16.0      | MIT                                                |
+| mypy               | 2.4.0       | MIT                                                |
+| mypy_extensions    | 1.1.0       | MIT                                                |
+| platformdirs       | 4.13.0      | MIT                                                |
+| pre_commit         | 4.7.0       | MIT                                                |
 | pytest             | 9.1.1       | MIT                                                |
 | pytest-cov         | 7.1.0       | MIT                                                |
 | pytest-xdist       | 3.8.0       | MIT                                                |
-| execnet            | 2.1.2       | MIT                                                |
 | ruff               | 0.17.0      | MIT                                                |
 | urllib3            | 2.8.0       | MIT                                                |
+| virtualenv         | 21.14.7     | MIT                                                |
 | xmltodict          | 1.0.4       | MIT                                                |
 | PyYAML             | 6.0.3       | MIT License                                        |
 | jmespath           | 1.1.0       | MIT License                                        |
 | pluggy             | 1.6.0       | MIT License                                        |
+| python-discovery   | 1.6.2       | MIT License                                        |
 | six                | 1.17.0      | MIT License                                        |
 | cffi               | 2.1.1       | MIT-0                                              |
 | certifi            | 2026.7.22   | Mozilla Public License 2.0 (MPL 2.0)               |
+| pathspec           | 1.1.1       | Mozilla Public License 2.0 (MPL 2.0)               |
+| typing_extensions  | 4.16.0      | PSF-2.0                                            |
+| distlib            | 0.4.3       | Python Software Foundation License                 |
