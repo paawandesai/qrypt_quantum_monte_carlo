@@ -29,7 +29,7 @@ from pathlib import Path
 import boto3
 
 from .. import ids, log, metrics
-from ..jobs import create_and_enqueue, new_job_record, params_from_record
+from ..jobs import DEADLINE_S, create_and_enqueue, new_job_record, params_from_record
 from ..params import Limits, ValidationError, validate_job_request
 from ..qrypt import EntropySource, QryptClient, QryptError
 from ..runtime import expected_fingerprint, fingerprint_mismatch
@@ -114,6 +114,10 @@ class App:
     @property
     def rate_limit(self) -> int:
         return int(self.env.get("QRYPT_RATE_PER_10S", "14"))
+
+    @property
+    def job_deadline_s(self) -> int:
+        return int(self.env.get("JOB_DEADLINE_S", str(DEADLINE_S)))
 
     @property
     def entropy_ceiling(self) -> int:
@@ -352,6 +356,7 @@ class App:
         block_hash = block_sha256(block.data)
         entropy = {
             "source": "qrypt",
+            "endpoint_host": block.endpoint_host,
             "qrypt_request_id": block.request_id,
             "block_sha256": block_hash,
             "kib": block.kib,
@@ -368,6 +373,7 @@ class App:
                 entropy=entropy,
                 created=fetched,
                 fail_shards=fail_shards,
+                deadline_s=self.job_deadline_s,
             )
 
         job = create_and_enqueue(self.store, make, (block_hash, ids.iso(fetched)))
@@ -417,6 +423,7 @@ class App:
                 entropy=entropy,
                 created=created,
                 replay_of=job_id,
+                deadline_s=self.job_deadline_s,
             )
 
         job = create_and_enqueue(self.store, make, (job_id, "replay", ids.iso(created)))

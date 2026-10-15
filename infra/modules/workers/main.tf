@@ -18,6 +18,13 @@ resource "aws_sqs_queue" "shards" {
     deadLetterTargetArn = aws_sqs_queue.dlq.arn
     maxReceiveCount     = var.max_receive_count
   })
+
+  lifecycle {
+    precondition {
+      condition     = var.visibility_timeout_s >= 6 * var.worker_timeout_s
+      error_message = "visibility_timeout_s must be at least 6x worker_timeout_s (AWS guidance for SQS event sources)."
+    }
+  }
 }
 
 resource "aws_sqs_queue_redrive_allow_policy" "dlq" {

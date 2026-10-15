@@ -8,7 +8,11 @@ locals {
   # no data "aws_ssm_parameter": it decrypts by default and would put the secret
   # into state and plan output.
   qrypt_key_param_arn = "arn:aws:ssm:${var.region}:${local.account_id}:parameter${var.qrypt_key_param_name}"
-  api_key_param_arn   = "arn:aws:ssm:${var.region}:${local.account_id}:parameter${var.api_key_param_name}"
+
+  # The reconciler writes off a job's missing shards after this deadline, so it
+  # must outlast every retry a shard can get, plus a margin for the last run.
+  job_deadline_s    = var.max_receive_count * var.shard_visibility_timeout_s + 900
+  api_key_param_arn = "arn:aws:ssm:${var.region}:${local.account_id}:parameter${var.api_key_param_name}"
 }
 
 module "data" {
@@ -29,6 +33,7 @@ module "workers" {
   reserved_concurrency = var.worker_reserved_concurrency
   max_concurrency      = var.worker_max_concurrency
   max_receive_count    = var.max_receive_count
+  visibility_timeout_s = var.shard_visibility_timeout_s
   fault_injection      = var.enable_fault_injection
   log_retention_days   = var.log_retention_days
 }
@@ -58,6 +63,7 @@ module "api" {
   max_paths_per_shard  = var.max_paths_per_shard
   entropy_ceiling_kib  = var.entropy_ceiling_kib
   qrypt_rate_per_10s   = var.qrypt_rate_per_10s
+  job_deadline_s       = local.job_deadline_s
   fault_injection      = var.enable_fault_injection
   log_retention_days   = var.log_retention_days
 }

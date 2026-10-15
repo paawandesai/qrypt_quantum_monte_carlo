@@ -108,6 +108,11 @@ variable "qrypt_rate_per_10s" {
   type        = number
 }
 
+variable "job_deadline_s" {
+  description = "Seconds after submit before the reconciler marks an unfinished job PARTIAL; outlasts every shard retry."
+  type        = number
+}
+
 variable "fault_injection" {
   description = "Accept fail_shards on submit."
   type        = bool

@@ -38,8 +38,10 @@ resource "aws_iam_role" "ci" {
 }
 
 # Deploy permissions scoped by resource-name prefix. Name-prefix patterns
-# (qmc-*) are used instead of "*"; nothing here grants account-wide access.
+# (qmc-*) are used instead of "*"; the only account-wide grants are two
+# read-only lookups that AWS cannot scope (LogsDescribe, EventSourceMappingGetAfterDelete).
 data "aws_iam_policy_document" "deploy" {
+  #checkov:skip=CKV_AWS_356:Only lambda:GetEventSourceMapping uses Resource "*": Lambda authorizes lookups of a deleted mapping against "*", so destroy cannot finish otherwise. Read-only; logs:DescribeLogGroups is a list call checkov already treats as unrestrictable.
   statement {
     sid = "Lambda"
     actions = [
@@ -53,11 +55,8 @@ data "aws_iam_policy_document" "deploy" {
     resources = ["arn:aws:lambda:${local.region}:${local.acct}:function:${local.p}*"]
   }
   statement {
-    sid = "EventSourceMappings"
-    actions = [
-      "lambda:CreateEventSourceMapping", "lambda:GetEventSourceMapping", "lambda:UpdateEventSourceMapping",
-      "lambda:DeleteEventSourceMapping", "lambda:TagResource", "lambda:ListTags",
-    ]
+    sid       = "EventSourceMappings"
+    actions   = ["lambda:CreateEventSourceMapping"]
     resources = ["arn:aws:lambda:${local.region}:${local.acct}:event-source-mapping:*"]
     condition {
       test     = "ArnLike"
@@ -65,11 +64,16 @@ data "aws_iam_policy_document" "deploy" {
       values   = ["arn:aws:lambda:${local.region}:${local.acct}:function:${local.p}*"]
     }
   }
-  # Tagging an event-source mapping at creation has no function ARN to match
-  # the condition above, so tag actions get their own unconditioned statement.
+  # Only CreateEventSourceMapping carries a function ARN for the condition above.
+  # Get, update, delete and tagging address a mapping by its UUID, so they get
+  # their own unconditioned statement (without it `terraform destroy` fails while
+  # waiting for the mapping to go away).
   statement {
-    sid       = "EventSourceMappingTags"
-    actions   = ["lambda:TagResource", "lambda:UntagResource", "lambda:ListTags"]
+    sid = "EventSourceMappingsByUuid"
+    actions = [
+      "lambda:GetEventSourceMapping", "lambda:UpdateEventSourceMapping", "lambda:DeleteEventSourceMapping",
+      "lambda:TagResource", "lambda:UntagResource", "lambda:ListTags",
+    ]
     resources = ["arn:aws:lambda:${local.region}:${local.acct}:event-source-mapping:*"]
   }
   statement {
@@ -121,6 +125,14 @@ data "aws_iam_policy_document" "deploy" {
   statement {
     sid       = "LogsDescribe"
     actions   = ["logs:DescribeLogGroups"]
+    resources = ["*"]
+  }
+  # After deleting a mapping, Terraform polls GetEventSourceMapping until it is
+  # gone, and Lambda authorizes a lookup of a missing mapping against "*", so a
+  # scoped grant turns "deleted" into AccessDenied and destroy fails. Read-only.
+  statement {
+    sid       = "EventSourceMappingGetAfterDelete"
+    actions   = ["lambda:GetEventSourceMapping"]
     resources = ["*"]
   }
   statement {

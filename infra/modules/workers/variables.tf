@@ -71,7 +71,6 @@ variable "worker_timeout_s" {
 }
 
 variable "visibility_timeout_s" {
-  description = "Shard queue visibility timeout (s); must be >= worker timeout."
+  description = "Shard queue visibility timeout (s). AWS recommends at least 6x the worker timeout for an SQS event source, so a throttled retry does not use up a receive."
   type        = number
-  default     = 60
 }

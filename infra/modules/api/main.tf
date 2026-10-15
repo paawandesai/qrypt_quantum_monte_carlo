@@ -98,6 +98,7 @@ resource "aws_lambda_function" "api" {
       MAX_PATHS              = tostring(var.max_paths)
       MAX_SHARDS             = tostring(var.max_shards)
       MAX_PATHS_PER_SHARD    = tostring(var.max_paths_per_shard)
+      JOB_DEADLINE_S         = tostring(var.job_deadline_s)
       ENABLE_FAULT_INJECTION = tostring(var.fault_injection)
     }
   }
@@ -119,20 +120,32 @@ resource "aws_lambda_function_url" "api" {
 # AuthType NONE requires a resource policy allowing Principal "*". Both statements
 # are scoped with conditions so they only apply through the Function URL. They are
 # managed here so `terraform destroy` removes them (deleting a URL alone does not).
+# Creating a NONE URL now also makes AWS add its own statements named
+# FunctionURLAllowPublicAccess and FunctionURLAllowInvokeAction (same conditions;
+# removed with the function). Our ids differ from those, or an apply from empty
+# fails with "statement id already exists" when the URL is created first.
 resource "aws_lambda_permission" "url_invoke" {
   #checkov:skip=CKV_AWS_301:Required by AWS for a Function URL with AuthType NONE (documented wildcard principal); scoped to Function URL invocations only, and the handler enforces the bearer key.
-  statement_id           = "FunctionURLAllowPublicAccess"
+  statement_id           = "QmcFunctionUrlPublicInvokeUrl"
   action                 = "lambda:InvokeFunctionUrl"
   function_name          = aws_lambda_function.api.function_name
   principal              = "*"
   function_url_auth_type = "NONE"
+
+  lifecycle {
+    create_before_destroy = true # the id changed; never leave the URL without its permission
+  }
 }
 
 resource "aws_lambda_permission" "url_invoke_function" {
   #checkov:skip=CKV_AWS_301:Required by AWS for a Function URL with AuthType NONE (documented wildcard principal); scoped to Function URL invocations only, and the handler enforces the bearer key.
-  statement_id             = "FunctionURLInvokeAllowPublicAccess"
+  statement_id             = "QmcFunctionUrlPublicInvoke"
   action                   = "lambda:InvokeFunction"
   function_name            = aws_lambda_function.api.function_name
   principal                = "*"
   invoked_via_function_url = true
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }

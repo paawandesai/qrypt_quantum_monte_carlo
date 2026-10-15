@@ -100,12 +100,23 @@ variable "qrypt_entropy_url" {
   description = "Qrypt Entropy endpoint (checked against docs.qrypt.com/eaas before deploying)."
   type        = string
   default     = "https://api-eus.qrypt.com/api/v1/quantum-entropy"
+
+  validation {
+    condition     = can(regex("^https://([a-z0-9-]+\\.)*qrypt\\.com(:[0-9]+)?(/|$)", var.qrypt_entropy_url))
+    error_message = "qrypt_entropy_url must be an https URL on a qrypt.com host (the handler refuses anything else)."
+  }
 }
 
 variable "max_receive_count" {
-  description = "Deliveries of a shard message before it moves to the DLQ."
+  description = "Deliveries of a shard message before it moves to the DLQ (AWS recommends at least 5)."
   type        = number
-  default     = 3
+  default     = 5
+}
+
+variable "shard_visibility_timeout_s" {
+  description = "Shard queue visibility timeout (s); at least 6x the 30 s worker timeout. The job deadline is derived from it."
+  type        = number
+  default     = 180
 }
 
 variable "enable_fault_injection" {
