@@ -128,7 +128,7 @@ cd infra
 # local trial replace `backend "http" {}` in versions.tf with nothing and run `terraform init`.
 GITLAB_HOST=... GITLAB_PROJECT_ID=... GITLAB_TOKEN=... ../scripts/tf-init.sh
 export TF_VAR_alarm_email=you@example.com    # confirm the SNS email AWS sends
-terraform apply                              # 37 resources
+terraform apply                              # 39 resources
 cd ..
 
 export QMC_API_URL=$(terraform -chdir=infra output -raw api_url)
@@ -399,7 +399,7 @@ nothing stubbed. Raw JSON lands in `bench/`.
 |---|---|---|
 | Submit latency, warm, 50 submissions | < 800 ms p95 | **619.8 ms p95**, 325.1 ms p50, 739.6 ms max; first request 561.7 ms (2026-10-14, client in a us-east cloud container) |
 | 1M paths submit → `COMPLETE`, 5 runs | < 60 s | **1.07 s median**, 1.4 s max; all 5 `COMPLETE`, all within 3 SE of Black-Scholes (worst z = −2.07) |
-| `terraform apply` from empty | < 10 min | _not yet measured_ |
+| `terraform apply` from empty | < 10 min | **85 s** for 39 resources, then a second plan with no drift; `terraform destroy` removed all 39 in 123 s with nothing left behind (2026-10-15, a throwaway stack in the same account; `bench/rebuild-2026-10-15.md`) |
 | Steady-state cost at 100 jobs/day | $0 | **≈ 13,000 GB-s/month** of 400,000 free, from measured billed durations (2026-10-15, `bench/results-gbs-*.json`); other services per the arithmetic above |
 
 ## Known constraints
