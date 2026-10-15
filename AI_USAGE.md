@@ -31,16 +31,16 @@ carry a `Co-Authored-By: Claude` trailer.
 
 | Artifact | Verified by | Not verified |
 |---|---|---|
-| `src/qmc/**` (all deployed code, including the console) | 211 unit, moto-backed and adversarial tests (93% line+branch coverage); ruff; the seed-path grep; `terraform apply` succeeded and a second plan shows no drift | behaviour of a real job on AWS and against the real Qrypt API (deployed, but no job run yet) |
+| `src/qmc/**` (all deployed code, including the console) | 211 unit, moto-backed and adversarial tests (93% line+branch coverage); ruff; the seed-path grep; `terraform apply` succeeded and a second plan shows no drift | other regions, other Qrypt endpoints, and load beyond the measured runs; see `bench/deployed-checks-2026-10-14.md` for what ran on AWS against the real Qrypt API |
 | `eval/adversarial/**` | run green; each case was read for whether it can fail | that the hostile strings cover every attack form |
 | `tests/**` | run green locally; each test was read for whether it can fail (the statistical test is intentionally non-deterministic) | that the test suite covers every edge case the brief lists |
 | `infra/**` (Terraform) | `terraform validate`, `terraform plan` (now 37 resources with the S3 code bucket, no secret values in plan output), tflint (preset `all`), Checkov (0 failed; every suppression has an inline reason) | `apply` succeeded (with reserved concurrency off, see README Known constraints) and a second plan showed no drift; `destroy` has not run |
 | `.gitlab-ci.yml` | GitLab's CI lint API reports it valid; MR and main pipelines ran green on the project runner; auto-cancel observed | the `heavy` lane (no tagged runner), the docs-only skip on main, the OIDC plan/apply jobs (role not created), per-job peak memory |
 | `.pre-commit-config.yaml` | hook timings measured; a deliberate lint error blocked a commit | |
 | `scripts/build.py` | rebuilt twice with byte-identical zips; packaging test | that the arm64 numpy wheel imports on Lambda |
-| `scripts/bench.py`, `scripts/deployed_failclosed_test.py`, `scripts/qmc_cli.py` | lint only | not run against a deployment yet |
+| `scripts/bench.py`, `scripts/deployed_failclosed_test.py`, `scripts/qmc_cli.py` | lint; run against the deployed stack on 2026-10-14/15 (1M-path job, replay, benchmarks, fail-closed, DLQ alarm; results in `bench/`) | runs from networks other than one US cloud container |
 | `src/qmc/console/*` (web console UI and its copy) | Playwright smoke test against a moto-backed local server; screenshots reviewed by the assistant | real browsers other than Chromium; a deployment; accessibility audit beyond keyboard focus and contrast choices |
-| `scripts/verify.py` | test against a moto-backed job bundle | a real deployed bundle |
+| `scripts/verify.py` | test against a moto-backed job bundle; a real deployed bundle verified `bit-identical` on x86_64 | |
 | README cost arithmetic | arithmetic re-checked by hand | Lambda durations are estimates; AWS free-tier figures not re-checked against current AWS pages from this environment |
 | README and this file | read by the assistant against the guardrails | candidate review pending |
 | Design plan (Claude Doc, outside the repo) | candidate review | |
