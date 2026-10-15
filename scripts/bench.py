@@ -4,6 +4,7 @@ fetches a real 1 KiB Qrypt block and every job runs real workers.
 
   python scripts/bench.py latency [--n 50]     # submit latency, p50/p95
   python scripts/bench.py wallclock [--runs 5] # 1M-path submit -> COMPLETE
+  python scripts/bench.py gbs [--days 3]       # billed GB-s from Lambda REPORT logs
 
 Writes JSON results to bench/results-<kind>-<UTC timestamp>.json so the
 numbers in the README come from committed script output, not hand-typed.
@@ -18,7 +19,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import statistics
+import subprocess
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -87,20 +90,79 @@ def wallclock(runs: int) -> dict:
     }
 
 
+# Monthly invocations for the README workload (100 jobs/day, 1M paths, 10 shards).
+WORKLOAD = {"api": 93_000, "worker": 30_000, "reconciler": 8_640}
+REPORT_RE = re.compile(
+    r"Billed Duration: ([\d.]+) ms\s+Memory Size: (\d+) MB\s+"
+    r"Max Memory Used: (\d+) MB(?:\s+Init Duration: ([\d.]+) ms)?"
+)
+
+
+def gbs(days: int) -> dict:
+    """Billed duration (INIT included on cold starts) from each function's REPORT
+    lines, projected onto the README workload. Read-only: CloudWatch Logs only."""
+    start_ms = int((time.time() - days * 86400) * 1000)
+    funcs = {}
+    total = 0.0
+    for fn, monthly in WORKLOAD.items():
+        out = subprocess.run(  # noqa: S603 - fixed argv, no shell
+            [  # noqa: S607 - the operator's AWS CLI on PATH
+                "aws",
+                "logs",
+                "filter-log-events",
+                "--log-group-name",
+                f"/aws/lambda/qmc-dev-{fn}",
+                "--filter-pattern",
+                '"REPORT RequestId"',
+                "--start-time",
+                str(start_ms),
+                "--query",
+                "events[].message",
+                "--output",
+                "json",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        rows = [m.groups() for m in map(REPORT_RE.search, json.loads(out) or []) if m]
+        billed = [float(r[0]) for r in rows]
+        mem_mb = int(rows[0][1]) if rows else 0
+        mean_ms = statistics.fmean(billed) if billed else 0.0
+        monthly_gbs = mean_ms / 1000 * mem_mb / 1024 * monthly
+        total += monthly_gbs
+        funcs[fn] = {
+            "invocations": len(rows),
+            "cold_starts": sum(1 for r in rows if r[3]),
+            "memory_mb": mem_mb,
+            "max_memory_used_mb": max((int(r[2]) for r in rows), default=0),
+            "billed_mean_ms": round(mean_ms, 1),
+            "billed_p50_ms": pct(billed, 50) if billed else None,
+            "billed_p95_ms": pct(billed, 95) if billed else None,
+            "monthly_invocations": monthly,
+            "monthly_gb_s": round(monthly_gbs),
+        }
+    return {"days": days, "functions": funcs, "monthly_gb_s_total": round(total), "free_gb_s": 400_000}
+
+
 def main() -> None:
     load_env()
     ap = argparse.ArgumentParser()
-    ap.add_argument("kind", choices=["latency", "wallclock"])
+    ap.add_argument("kind", choices=["latency", "wallclock", "gbs"])
     ap.add_argument("--n", type=int, default=50)
     ap.add_argument("--runs", type=int, default=5)
+    ap.add_argument("--days", type=int, default=3)
     a = ap.parse_args()
     started = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    result = latency(a.n) if a.kind == "latency" else wallclock(a.runs)
+    if a.kind == "gbs":
+        result = gbs(a.days)
+    else:
+        result = latency(a.n) if a.kind == "latency" else wallclock(a.runs)
     result["measured_at"] = started
     OUT.mkdir(exist_ok=True)
     path = OUT / f"results-{a.kind}-{started}.json"
     path.write_text(json.dumps(result, indent=2) + "\n")
-    summary = {k: v for k, v in result.items() if k not in ("samples", "results")}
+    summary = {k: v for k, v in result.items() if k not in ("samples", "results", "functions")}
     print(json.dumps(summary, indent=2))
     print(f"wrote {path.relative_to(OUT.parent)}")
 

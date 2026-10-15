@@ -319,13 +319,16 @@ Allowances are the always-free monthly figures. Last checked 2026-10-15: the
 Lambda figures (1M requests, 400,000 GB-s) against aws.amazon.com/lambda/pricing,
 and aws.amazon.com/free says 30+ services stay always-free on both the Free and
 Paid plans; the other services' figures were not re-checked against their pages. Lambda
-durations below are **estimates until the benchmarks run**; the table will be
-replaced by measured values.
+durations are **measured** (2026-10-15, `scripts/bench.py gbs`): the mean billed
+duration from 3 days of each function's REPORT log lines, which counts INIT on
+cold starts (`bench/results-gbs-20261015T180827Z.json`). Those 3 days mix 100k-path
+shards with smaller test jobs and have a higher cold-start share (6 to 11%) than a
+steady 100 jobs/day would.
 
 | Service | Usage per month | Always-free allowance | Headroom |
 |---|---|---|---|
 | Lambda requests | 3,000 submits + 30,000 shard invocations + ~90,000 status polls (30/job) + 8,640 reconciler runs ≈ 132k | 1M | ~87% |
-| Lambda compute | worker ~0.3 s × 1 GB × 30,000 = 9,000 GB-s; api ~0.2 s × 0.5 GB × 93,000 = 9,300 GB-s; reconciler ~0.5 s × 0.25 GB × 8,640 = 1,080 GB-s ≈ 19,400 GB-s (estimate, includes billed INIT for cold starts) | 400,000 GB-s | ~95% |
+| Lambda compute | worker 170 ms × 1 GB × 30,000 = 5,086 GB-s; api 158 ms × 0.5 GB × 93,000 = 7,368 GB-s; reconciler 260 ms × 0.25 GB × 8,640 = 562 GB-s ≈ 13,000 GB-s (measured mean billed duration). Even if every invocation billed the p95 (1,354 / 448 / 1,332 ms) it would be ≈ 64,000 GB-s | 400,000 GB-s | ~97% (84% at p95) |
 | DynamoDB | provisioned 20 RCU + 20 WCU across both tables and the GSI; storage < 100 MB (TTL 7 days) | 25 RCU, 25 WCU, 25 GB per account per region | 5 RCU/WCU |
 | SQS | idle long polling by the event-source mapping ≈ 0.26–0.65M requests (5 pollers shrinking to 2, 20 s waits) + jobs: 3,000 × (1 batch send + 10 receives + 10 deletes) ≈ 63k + `/system` reads | 1M | ~29% worst case |
 | KMS | 2 SecureString decrypts per api cold start (cached for the container's life); never from `/health` | 20,000 requests | large |
@@ -359,7 +362,7 @@ nothing stubbed. Raw JSON lands in `bench/`.
 | Submit latency, warm, 50 submissions | < 800 ms p95 | **619.8 ms p95**, 325.1 ms p50, 739.6 ms max; first request 561.7 ms (2026-10-14, client in a us-east cloud container) |
 | 1M paths submit → `COMPLETE`, 5 runs | < 60 s | **1.07 s median**, 1.4 s max; all 5 `COMPLETE`, all within 3 SE of Black-Scholes (worst z = −2.07) |
 | `terraform apply` from empty | < 10 min | _not yet measured_ |
-| Steady-state cost at 100 jobs/day | $0 | arithmetic above; durations to be replaced with measured values |
+| Steady-state cost at 100 jobs/day | $0 | **≈ 13,000 GB-s/month** of 400,000 free, from measured billed durations (2026-10-15, `bench/results-gbs-*.json`); other services per the arithmetic above |
 
 ## Known constraints
 
