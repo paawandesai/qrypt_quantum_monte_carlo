@@ -20,7 +20,11 @@ from .runtime import expected_fingerprint, fingerprint_mismatch
 from .sim import ShardPartial
 from .store import ACTIVE_STATUSES, TTL_DAYS, Conflict, Store
 
-DEADLINE_S = 15 * 60  # after this the reconciler marks unfinished jobs PARTIAL
+# After this the reconciler marks unfinished jobs PARTIAL. It must exceed the
+# time a shard can spend being retried (max receives x visibility timeout), or a
+# shard still on its last retry would be written off. Terraform passes the real
+# value as JOB_DEADLINE_S; this default matches 5 receives x 180 s + 15 min.
+DEADLINE_S = 30 * 60
 STALE_AGGREGATING_S = 120
 
 
@@ -46,6 +50,7 @@ def new_job_record(
     created,
     fail_shards: list[int] | None = None,
     replay_of: str | None = None,
+    deadline_s: int = DEADLINE_S,
 ) -> dict:
     created_iso = ids.iso(created)
     rec = {
@@ -53,7 +58,7 @@ def new_job_record(
         "status": "QUEUED",
         "created_at": created_iso,
         "updated_at": created_iso,
-        "deadline_at": ids.iso(ids.plus(created, DEADLINE_S)),
+        "deadline_at": ids.iso(ids.plus(created, deadline_s)),
         "expires_at": ids.epoch_s(ids.plus(created, TTL_DAYS * 86400)),
         "params": params.as_dict(),
         "master_seed_hex": master_seed_hex,

@@ -66,6 +66,7 @@ def test_submit_creates_queued_job_with_seed_and_provenance(aws):
     assert len(job["master_seed_hex"]) == 64
     assert job["entropy_source"] == "qrypt"
     assert job["entropy"]["qrypt_request_id"] == "qr-42"
+    assert job["entropy"]["endpoint_host"] == "mock.test"  # the host that served the block, not assumed
     assert len(job["entropy"]["block_sha256"]) == 64
     assert job["params"]["paths"] == 100_000
     assert job["progress"] == {"shards": 4, "done": 0, "failed": 0, "done_indexes": [], "failed_indexes": []}
@@ -228,3 +229,16 @@ def test_console_has_no_third_party_scripts():
     js = (console / "app.js").read_text()
     assert "http://" not in html and "https://" not in html
     assert "innerHTML" not in js and "localStorage" not in js
+
+
+def test_job_deadline_comes_from_configuration(aws):
+    from datetime import datetime
+
+    app = make_app(env_extra={"JOB_DEADLINE_S": "1800"})
+    _, body, _ = call(app, "POST", "/jobs", body=STD)
+    _, job, _ = call(app, "GET", f"/jobs/{body['job_id']}")
+
+    def ts(s):
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+    assert (ts(job["deadline_at"]) - ts(job["created_at"])).total_seconds() == 1800

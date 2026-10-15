@@ -145,7 +145,10 @@ license-audit:
   script:
     - python -m venv .venv && .venv/bin/pip install --quiet -r requirements-dev.lock
     - .venv/bin/pip-licenses --from=mixed --format=markdown --with-urls --order=license > LICENSES.generated.md
-    - .venv/bin/pip-licenses --from=mixed --fail-on="GNU General Public License (GPL);GNU Affero General Public License v3 (AGPLv3);GPL-3.0;AGPL-3.0"
+    # --partial-match: "GNU General Public License" also catches "... v2 (GPLv2)",
+    # "... v3 or later (GPLv3+)" and the Affero variants; the SPDX ids catch
+    # GPL-2.0-only, AGPL-3.0-or-later and so on. LGPL is not matched (and none is installed).
+    - .venv/bin/pip-licenses --from=mixed --partial-match --fail-on="GNU General Public License;GNU Affero General Public License;GPL-2.0;GPL-3.0;AGPL"
   artifacts:
     paths: [LICENSES.generated.md]
     expire_in: 1 week
@@ -183,6 +186,10 @@ build:
   script:
     - $PEAK python scripts/build.py
     - sha256sum build/*.zip
+    # The zips that deploy: no mock, no tests, no .env (unit-tests never builds, so
+    # its copy of this check skips). pytest alone, so the job stays light.
+    - pip install --quiet pytest==$(grep -oP '^pytest==\K.*' requirements-dev.lock)
+    - python -m pytest -q -p no:cacheprovider --noconftest tests/test_packaging.py
   artifacts:
     paths: [build/api.zip, build/worker.zip, build/reconciler.zip]
     expire_in: 1 day
@@ -289,7 +296,11 @@ plan:
   variables:
     TF_VAR_alarm_email: $ALARM_EMAIL
   script:
-    - $TIME terraform -chdir=infra plan -input=false -lock-timeout=60s -out=plan.tfplan
+    # -detailed-exitcode: 0 = no changes, 2 = changes. On the nightly schedule a
+    # change means drift, so the job fails; on a push it is the plan for apply.
+    - set +e; $TIME terraform -chdir=infra plan -input=false -lock-timeout=60s -detailed-exitcode -out=plan.tfplan; rc=$?; set -e
+    - if [ "$rc" = 1 ]; then exit 1; fi
+    - if [ "$rc" = 2 ] && [ "$CI_PIPELINE_SOURCE" = "schedule" ]; then echo "DRIFT: live infrastructure differs from main" >&2; exit 1; fi
   artifacts:
     paths: [infra/plan.tfplan]
     expire_in: 1 day

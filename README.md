@@ -2,6 +2,11 @@
 
 > **One-line description (≤ 120 characters):** _to be written by Paawan before submission._
 
+**Deployed endpoint:** <https://tiszf5ypkbkclttornac5wabgu0lscrt.lambda-url.us-east-1.on.aws/>
+(web console at [`/#/new`](https://tiszf5ypkbkclttornac5wabgu0lscrt.lambda-url.us-east-1.on.aws/#/new)).
+Every API route needs the bearer key, which graders fetch from SSM as shown in
+the [quick-start](#grader-quick-start). It stays up through grading, then is destroyed.
+
 A serverless, Terraform-managed Monte Carlo service that prices a European call
 option. Every job is seeded from one 1 KiB block of Qrypt quantum entropy, fans
 out across SQS-driven Lambda workers with independently derived shard seeds,
@@ -41,7 +46,7 @@ flowchart LR
   api -- "put job, counters" --> jobs[(DynamoDB jobs<br/>+ GSI by_status<br/>provisioned 5/5 + 5/5)]
   api -- "SendMessageBatch" --> q[[SQS shards<br/>SSE-SQS, long polling]]
   q -- "event-source mapping<br/>batch 1, max concurrency 5" --> w[worker Lambda<br/>numpy 2.5.4, arm64<br/>reserved concurrency 10]
-  q -- "after 3 receives" --> dlq[[SQS DLQ<br/>never consumed]]
+  q -- "after 5 receives" --> dlq[[SQS DLQ<br/>never consumed]]
   w -- "conditional put" --> shards[(DynamoDB shards<br/>provisioned 10/10)]
   s3[(S3 code bucket<br/>private, worker.zip only)] -. "code at deploy" .-> w
   w -- "ADD done/failed sets,<br/>aggregate on last shard" --> jobs
@@ -58,7 +63,7 @@ Terraform layout (`infra/`): one root module and five child modules.
 | Module | Creates |
 |---|---|
 | `data` | `jobs` table (+ `by_status` GSI) and `shards` table, provisioned capacity, TTL 7 days |
-| `workers` | shard queue + DLQ (redrive, maxReceiveCount 3), private S3 bucket for the worker zip, worker function + role + log group, SQS event-source mapping, reconciler function + role + log group + 5-minute EventBridge rule |
+| `workers` | shard queue + DLQ (redrive, maxReceiveCount 5, visibility timeout 180 s), private S3 bucket for the worker zip, worker function + role + log group, SQS event-source mapping, reconciler function + role + log group + 5-minute EventBridge rule |
 | `api` | api function + role + log group, Function URL, the two URL resource-policy statements |
 | `observability` | SNS topic + policy + email subscription, 5 alarms, dashboard |
 | `budget` | $1/month AWS Budget (alerts at any actual spend and at 100% forecast) |
@@ -147,9 +152,9 @@ python scripts/qmc_cli.py submit --paths 1000 --shards 2 --fail-shards 0 --wait 
 terraform -chdir=infra apply                 # fault injection back off
 ```
 
-The shard is retried 3 times (60 s visibility timeout each) before it reaches
-the DLQ, and CloudWatch can take a few more minutes to move the alarm, so
-expect several minutes, not seconds. The DLQ is never consumed, so its alarm
+The shard is received 5 times, 180 s apart (the visibility timeout), before it
+reaches the DLQ, and CloudWatch can take a few more minutes to move the alarm,
+so expect roughly 15 minutes; cut the recording rather than shorten the timeouts. The DLQ is never consumed, so its alarm
 stays in `ALARM` until the queue is purged; purge it before a second recording
 or no new notification is sent.
 
@@ -204,7 +209,7 @@ fault-injected shard, which needs fault injection turned on.
 
 ## How correctness is checked
 
-All by committed tests (`pytest`, 211 tests including the adversarial set, 93% line+branch coverage of `src/qmc`;
+All by committed tests (`pytest`, 222 tests including the adversarial set, 93% line+branch coverage of `src/qmc`;
 CI gate 80%). Nothing is verified by a model's say-so.
 
 | Property | Test |
@@ -218,7 +223,7 @@ CI gate 80%). Nothing is verified by a model's say-so.
 | Fail-closed seeding | `test_api.py::test_qrypt_failure_rejects_job_and_creates_nothing` (401, 403, 429, 500, 503, timeout, unreachable, key unavailable) and `test_qrypt.py` |
 | Worker failure → `PARTIAL`, never `COMPLETE` | `test_pipeline.py::test_failing_shard_ends_partial_never_complete`, reconciler tests |
 | No secrets in logs | `test_api.py::test_logs_never_contain_auth_header_or_body` |
-| Mock never packaged | `test_packaging.py` (the check on the three built zips runs only after `scripts/build.py`; CI's unit-test job does not build first, so there it covers a freshly built api zip only) |
+| Mock never packaged | `test_packaging.py`, also run by CI's `build` job on the three zips that deploy |
 
 Deployed checks (run after `apply`; results committed under `bench/`): a
 1M-path job within 3 SE, a replay with verdict `bit-identical`,
@@ -264,20 +269,26 @@ That is one job, not a proof for every host.
 - **Mock Qrypt client**: lives in `tests/fakes/`, injected by tests through the
   `App` constructor, absent from every zip (asserted), and selectable by no
   environment variable. A missing or invalid token makes submit fail closed.
-  The Qrypt URL itself is configuration (`QRYPT_ENTROPY_URL`) and is not
-  recorded on the job, so `entropy_source: "qrypt"` reflects the deployed
-  configuration, not a check of who answered.
+  The Qrypt URL is configuration (`QRYPT_ENTROPY_URL`), but only an https URL on
+  a `qrypt.com` host is accepted (Terraform validation, and the client checks
+  again before the token is loaded and fails closed with
+  `qrypt_endpoint_not_allowed`). Each job records `entropy.endpoint_host`, the
+  host that served its block.
 - **Burst of submissions**: our limiter returns `429` with `Retry-After` before
   Qrypt is called. An entropy ceiling (default 5,000 KiB of the 10,240 KiB
   assessment budget) returns `409` once reached.
 - **Duplicate SQS delivery**: shard writes are conditional puts; completion
   tracking uses DynamoDB number sets, so a redelivered message changes nothing.
-- **Worker failure**: after 3 receives the message goes to the DLQ (which nothing
+- **Worker failure**: after 5 receives, 180 s apart (AWS recommends a visibility
+  timeout of at least 6× the 30 s function timeout and `maxReceiveCount` of at
+  least 5; Terraform refuses a shorter visibility timeout), the message goes to the DLQ (which nothing
   consumes, so the depth alarm fires). On the last receive the worker records the
   failure, and the job ends `PARTIAL` with `failed_shard_indexes` and
   `shard_errors`. No result is written for a `PARTIAL` job.
 - **Timeouts and crashes**: the reconciler runs every 5 minutes and marks jobs
-  still active 15 minutes after submit as `PARTIAL`, listing the missing shards.
+  still active 30 minutes after submit as `PARTIAL`, listing the missing shards.
+  The deadline is derived in Terraform as receives × visibility timeout + 15
+  minutes, so a shard still being retried is never written off.
   It also re-aggregates a job whose aggregator died mid-write.
 - **Lambda timeout**: the per-shard cap (2M paths) keeps a shard far below the
   30 s worker timeout; oversized `paths/shards` ratios are rejected at submit.
@@ -371,7 +382,7 @@ unless Express workflows are used).
 day, so alerts arrive hours late and stop nothing. The real cost limiters are
 reserved concurrency (worker 10, api 5), `maximum_concurrency` 5 on the SQS
 event-source mapping, the per-job `paths`/`shards` caps, and the DLQ
-`maxReceiveCount` of 3. Costs on the deploying account are the deployer's own.
+`maxReceiveCount` of 5. Costs on the deploying account are the deployer's own.
 
 The budget screenshot (account id redacted) will be added after the first apply.
 
@@ -403,7 +414,7 @@ conflict is recorded here.
 | Correctness test | one test within 3 SE | two tests: fixed-seed deterministic, and fresh-seed statistical with its ~0.27% expected failure rate stated |
 | Fault injection | forced failure for the demo | off by default behind a Terraform variable; when on, a real worker raises |
 | CI provider and OIDC | GitHub repository, GitHub Actions | the repository is on a self-hosted GitLab, so CI is GitLab CI and AWS access in CI uses GitLab OIDC `id_tokens` to assume an IAM role (no long-lived keys). The IAM OIDC provider and the CI role (trusted only for this project's `main` branch, permissions scoped to `qmc-*` resources) are defined in `infra/bootstrap/` and were applied on 2026-10-15 (state name `bootstrap`). `AWS_ROLE_ARN` and `ALARM_EMAIL` are masked, protected CI variables, so `plan` runs on `main` and `apply` is a manual job |
-| CI runners | CI runs on every push | GitLab CI on the project's own shared, self-hosted runner (tagged `heavy` for the browser smoke test, which runs nightly and on demand on MRs). Each push-path check runs on every push that changes its inputs (a docs-only push skips the Python and Terraform checks; gitleaks always runs), and the nightly schedule runs everything |
+| CI runners | CI runs on every push | GitLab CI on the project's own shared, self-hosted runner (tagged `heavy` for the browser smoke test, which runs nightly and on demand on MRs). Each push-path check runs on every push that changes its inputs (a docs-only push skips the Python and Terraform checks; gitleaks always runs), and the nightly schedule runs everything, including a `plan` that fails the pipeline if the live stack has drifted from `main` |
 | Ephemeral per-branch stacks (stretch) | GitHub Actions apply/destroy | not built yet |
 | Step Functions (stretch) | allowed | not used: it would break the $0 target at 100 jobs/day |
 | Repository host | GitHub repository | GitLab (`labs.gauntletai.com`), with GitLab CI (row above) |
@@ -425,7 +436,7 @@ Other constraints:
   independence: shard independence comes from `SeedSequence` spawn keys, and the
   Qrypt block supplies the master seed's provenance.
 - **PARTIAL from a timeout is late.** It appears after the reconciler's next run,
-  up to 20 minutes after submit (15-minute deadline + 5-minute schedule).
+  up to 35 minutes after submit (30-minute deadline + 5-minute schedule).
 - **Capacity.** 25 WCU total means a 100-shard job can briefly throttle; the SDK
   retries with backoff and `max_shards` bounds it.
 - **Rate limiter.** Fixed 10 s windows of 14 keep any 10 s span at or under 28

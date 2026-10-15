@@ -1,7 +1,7 @@
 # Licenses
 
 Audit run with `pip-licenses --from=mixed` (re-run before submission; CI's
-`license-audit` job regenerates it and fails on GPL/AGPL). Last run: 2026-10-15.
+`license-audit` job regenerates it and fails on GPL/AGPL, with partial matching so "GPLv2", "GPLv3+" and SPDX ids are caught too). Last run: 2026-10-15.
 
 ## Packaged into Lambda
 

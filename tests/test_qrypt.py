@@ -30,6 +30,9 @@ class FakeResp(io.BytesIO):
         return False
 
 
+URL = "https://api-eus.qrypt.com/api/v1/quantum-entropy"
+
+
 def client(monkeypatch, outcome, token="tok"):
     seen = {}
 
@@ -42,13 +45,14 @@ def client(monkeypatch, outcome, token="tok"):
         return outcome
 
     monkeypatch.setattr(qrypt.urllib.request, "urlopen", fake_urlopen)
-    return QryptClient(lambda: token, url="https://qrypt.invalid/api/v1/quantum-entropy", timeout_s=2), seen
+    return QryptClient(lambda: token, url=URL, timeout_s=2), seen
 
 
 def test_success_requests_one_kib_with_bearer(monkeypatch):
     c, seen = client(monkeypatch, FakeResp(ok_body(), {"X-Request-Id": "abc-123"}))
     blk = c.fetch_block()
     assert blk.data == BLOCK and blk.kib == 1 and blk.request_id == "abc-123"
+    assert blk.endpoint_host == "api-eus.qrypt.com"
     assert seen["url"].endswith("?size=1")
     assert seen["headers"]["Authorization"] == "Bearer tok"
     assert seen["headers"]["Accept"] == "application/json"
@@ -75,7 +79,7 @@ def test_no_request_id_is_null_not_invented(monkeypatch):
     ],
 )
 def test_http_errors_raise_named_cause(monkeypatch, status, cause):
-    err = urllib.error.HTTPError("https://qrypt.invalid", status, "x", {}, None)
+    err = urllib.error.HTTPError(URL, status, "x", {}, None)
     c, _ = client(monkeypatch, err)
     with pytest.raises(QryptError) as ei:
         c.fetch_block()
@@ -139,3 +143,33 @@ def test_request_id_from_body():
 def test_uses_first_block_when_more_returned():
     other = base64.b64encode(b"\xff" * 1024).decode()
     assert parse_response(ok_body([base64.b64encode(BLOCK).decode(), other])).data == BLOCK
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://api-eus.qrypt.com/api/v1/quantum-entropy",  # not https
+        "https://qrypt.com.evil.example/api",  # suffix trick
+        "https://evilqrypt.com/api",  # no dot boundary
+        "https://user:pw@api-eus.qrypt.com/api",  # credentials in the URL
+        "https://10.255.255.1/api/v1/quantum-entropy",
+        "https://localhost:8765/api",
+        "not a url",
+    ],
+)
+def test_non_qrypt_endpoint_fails_closed_before_token_is_read(monkeypatch, url):
+    def no_network(*a, **k):
+        raise AssertionError("must not connect")
+
+    monkeypatch.setattr(qrypt.urllib.request, "urlopen", no_network)
+    token_reads = []
+    c = QryptClient(lambda: token_reads.append(1) or "tok", url=url)
+    with pytest.raises(QryptError) as ei:
+        c.fetch_block()
+    assert ei.value.cause == "qrypt_endpoint_not_allowed"
+    assert token_reads == []
+
+
+@pytest.mark.parametrize("url", [URL, "https://qrypt.com/x", "https://API-EUS.Qrypt.com:8443/x"])
+def test_qrypt_hosts_are_allowed(url):
+    assert qrypt.endpoint_host(url).endswith("qrypt.com")

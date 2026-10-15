@@ -5,7 +5,10 @@ QryptError with a cause code; callers reject the job. There is deliberately
 no fallback to any local random source.
 
 The endpoint and size limits follow Qrypt's EaaS documentation; the base URL
-is configuration (QRYPT_ENTROPY_URL), not a constant baked into callers.
+is configuration (QRYPT_ENTROPY_URL), not a constant baked into callers. The
+configured URL must be https on a qrypt.com host, otherwise every fetch fails
+closed, and the host that answered is recorded with each block, so a job's
+`entropy_source: "qrypt"` is checked rather than assumed.
 """
 
 from __future__ import annotations
@@ -16,12 +19,14 @@ import json
 import re
 import socket
 import urllib.error
+import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 DEFAULT_URL = "https://api-eus.qrypt.com/api/v1/quantum-entropy"
 BLOCK_BYTES = 1024
+ALLOWED_HOST = "qrypt.com"  # the host itself or any subdomain of it
 # Qrypt sits behind Cloudflare, which answers urllib's default User-Agent
 # ("Python-urllib/3.x") with 403 "error code: 1010". Identify the client instead.
 USER_AGENT = "qrypt-monte-carlo/0.1"
@@ -54,6 +59,7 @@ CAUSE_MESSAGES = {
     "qrypt_unreachable": "Qrypt could not be reached (network error).",
     "qrypt_bad_response": "Qrypt returned a response that is not a valid entropy block.",
     "qrypt_key_unavailable": "The Qrypt token could not be loaded from SSM.",
+    "qrypt_endpoint_not_allowed": "The configured entropy URL is not an https URL on a qrypt.com host.",
 }
 
 
@@ -73,6 +79,21 @@ class EntropyBlock:
     data: bytes  # exactly BLOCK_BYTES
     request_id: str | None
     kib: int = 1
+    endpoint_host: str | None = None  # host that served the block
+
+
+def endpoint_host(url: str) -> str:
+    """Return the host of an allowed Qrypt URL; raise QryptError otherwise."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        host = (parts.hostname or "").lower()
+    except ValueError:
+        raise QryptError("qrypt_endpoint_not_allowed") from None
+    if parts.scheme != "https" or parts.username or parts.password:
+        raise QryptError("qrypt_endpoint_not_allowed")
+    if host != ALLOWED_HOST and not host.endswith("." + ALLOWED_HOST):
+        raise QryptError("qrypt_endpoint_not_allowed")
+    return host
 
 
 class EntropySource(Protocol):
@@ -89,6 +110,7 @@ class QryptClient:
         self._timeout_s = timeout_s
 
     def fetch_block(self) -> EntropyBlock:
+        host = endpoint_host(self._url)  # before the token is loaded or sent anywhere
         try:
             token = self._token_provider()
         except Exception as exc:
@@ -120,7 +142,7 @@ class QryptClient:
         except OSError:
             raise QryptError("qrypt_unreachable") from None
 
-        return parse_response(raw, headers)
+        return replace(parse_response(raw, headers), endpoint_host=host)
 
 
 def parse_response(raw: bytes, headers: dict[str, str] | None = None) -> EntropyBlock:

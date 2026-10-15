@@ -31,4 +31,4 @@ class MockQrypt:
         while len(out) < BLOCK_BYTES:
             out += hashlib.sha256(f"mock-qrypt/{self.calls}/{i}".encode()).digest()
             i += 1
-        return EntropyBlock(data=out[:BLOCK_BYTES], request_id=self.request_id, kib=1)
+        return EntropyBlock(data=out[:BLOCK_BYTES], request_id=self.request_id, kib=1, endpoint_host="mock.test")

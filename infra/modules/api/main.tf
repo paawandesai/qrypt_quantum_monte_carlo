@@ -98,6 +98,7 @@ resource "aws_lambda_function" "api" {
       MAX_PATHS              = tostring(var.max_paths)
       MAX_SHARDS             = tostring(var.max_shards)
       MAX_PATHS_PER_SHARD    = tostring(var.max_paths_per_shard)
+      JOB_DEADLINE_S         = tostring(var.job_deadline_s)
       ENABLE_FAULT_INJECTION = tostring(var.fault_injection)
     }
   }
