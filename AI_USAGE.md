@@ -41,7 +41,7 @@ carry a `Co-Authored-By: Claude` trailer.
 | `scripts/bench.py`, `scripts/deployed_failclosed_test.py`, `scripts/qmc_cli.py` | lint; run against the deployed stack on 2026-10-14/15 (1M-path job, replay, benchmarks, fail-closed, DLQ alarm; results in `bench/`) | runs from networks other than one US cloud container |
 | `src/qmc/console/*` (web console UI and its copy) | designed after the build on a Claude Design canvas on the candidate's Forge design system and approved by the candidate on 2026-10-15, then restyled to match; Playwright smoke test against a moto-backed local server and, on 2026-10-15, against the deployed stack (fault path local only); screenshots reviewed by the assistant | real browsers other than Chromium; the fault-injection path on the deployment; accessibility audit beyond keyboard focus and contrast choices |
 | `scripts/verify.py` | test against a moto-backed job bundle; a real deployed bundle verified `bit-identical` on x86_64 | |
-| README cost arithmetic | arithmetic re-checked by hand | Lambda durations are estimates; AWS free-tier figures not re-checked against current AWS pages from this environment |
+| README cost arithmetic | arithmetic re-checked by hand; Lambda durations measured from REPORT log lines (`scripts/bench.py gbs`, 2026-10-15); Lambda allowances and the AWS Budgets pricing page checked 2026-10-15 | the other services' free-tier figures were not re-checked against current AWS pages |
 | README and this file | read by the assistant against the guardrails | candidate review pending |
 | Design plan (Claude Doc, outside the repo) | candidate review | |
 

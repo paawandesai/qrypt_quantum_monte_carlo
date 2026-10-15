@@ -8,11 +8,12 @@ out across SQS-driven Lambda workers with independently derived shard seeds,
 aggregates to a price with a 95% confidence interval, and can be **replayed**
 from its stored seed to recompute the same float64 result.
 
-Status (2026-10-14): code, tests and Terraform are complete and `terraform plan`
-is clean. Deployed to a dev stack on 2026-10-14 with reserved concurrency
-temporarily off while the Lambda concurrency quota increase is pending (see
-[Known constraints](#known-constraints)). The 1M-path job, replay and benchmarks
-have been measured there, and the fail-closed and DLQ alarm tests passed.
+Status (2026-10-15): code, tests and Terraform are complete and deployed to a
+dev stack in `us-east-1`, with reserved concurrency in place (worker 10, api 5)
+and `terraform plan` showing no drift. The 1M-path job, replay and benchmarks
+were measured there on 2026-10-14, while the reservations were temporarily off
+(see [Known constraints](#known-constraints)); the fail-closed and DLQ alarm
+tests passed.
 
 ## Contents
 
@@ -42,6 +43,7 @@ flowchart LR
   q -- "event-source mapping<br/>batch 1, max concurrency 5" --> w[worker Lambda<br/>numpy 2.5.4, arm64<br/>reserved concurrency 10]
   q -- "after 3 receives" --> dlq[[SQS DLQ<br/>never consumed]]
   w -- "conditional put" --> shards[(DynamoDB shards<br/>provisioned 10/10)]
+  s3[(S3 code bucket<br/>private, worker.zip only)] -. "code at deploy" .-> w
   w -- "ADD done/failed sets,<br/>aggregate on last shard" --> jobs
   eb[EventBridge rule<br/>rate 5 min] --> rec[reconciler Lambda]
   rec -- "PARTIAL past deadline" --> jobs
@@ -107,7 +109,7 @@ account in `us-east-1`; Python 3.13; a Qrypt Entropy token.
    # API bearer key: 32+ random characters
    python3 -c "import secrets;print(secrets.token_urlsafe(32))" > api-key.txt
    aws ssm put-parameter --name /qrypt-mc/api-key --type SecureString --value file://api-key.txt
-   shred -u qrypt-token.txt api-key.txt
+   shred -u qrypt-token.txt api-key.txt   # macOS has no shred: use rm -P
    ```
 
 **Deploy, run, replay, destroy:**
@@ -121,7 +123,7 @@ cd infra
 # local trial replace `backend "http" {}` in versions.tf with nothing and run `terraform init`.
 GITLAB_HOST=... GITLAB_PROJECT_ID=... GITLAB_TOKEN=... ../scripts/tf-init.sh
 export TF_VAR_alarm_email=you@example.com    # confirm the SNS email AWS sends
-terraform apply                              # ~34 resources
+terraform apply                              # 37 resources
 cd ..
 
 export QMC_API_URL=$(terraform -chdir=infra output -raw api_url)
@@ -133,6 +135,23 @@ python scripts/qmc_cli.py bundle <job_id> > bundle.json && python scripts/verify
 
 terraform -chdir=infra destroy
 ```
+
+To see the DLQ alarm fire with a genuinely failing worker (the demo path),
+turn fault injection on, submit a job that names a failing shard, then turn it
+off again. The `apply` diff prints the functions' environment, which includes
+the DLQ URL and so the account id; keep it off screen when recording.
+
+```bash
+terraform -chdir=infra apply -var enable_fault_injection=true
+python scripts/qmc_cli.py submit --paths 1000 --shards 2 --fail-shards 0 --wait   # ends PARTIAL
+terraform -chdir=infra apply                 # fault injection back off
+```
+
+The shard is retried 3 times (60 s visibility timeout each) before it reaches
+the DLQ, and CloudWatch can take a few more minutes to move the alarm, so
+expect several minutes, not seconds. The DLQ is never consumed, so its alarm
+stays in `ALARM` until the queue is purged; purge it before a second recording
+or no new notification is sent.
 
 The bearer key is fetched from SSM by the grader; it is never printed in this
 README, in Terraform outputs or in logs.
@@ -179,8 +198,9 @@ data only" banner, `noindex`, and a strict Content-Security-Policy.
 `tests/e2e/console_smoke.mjs` drives it with Playwright (connect, wrong key → 401,
 client validation, submit → `COMPLETE` within 3 SE, replay → bit-identical,
 fault-injected shard → `PARTIAL`, no horizontal scroll at 390 px). It passes
-against the moto-backed local server in `tests/e2e/local_server.py`; it has not
-yet run against a deployment.
+against the moto-backed local server in `tests/e2e/local_server.py`, and was
+run against the deployed stack on 2026-10-15 for every step except the
+fault-injected shard, which needs fault injection turned on.
 
 ## How correctness is checked
 
@@ -198,9 +218,9 @@ CI gate 80%). Nothing is verified by a model's say-so.
 | Fail-closed seeding | `test_api.py::test_qrypt_failure_rejects_job_and_creates_nothing` (401, 403, 429, 500, 503, timeout, unreachable, key unavailable) and `test_qrypt.py` |
 | Worker failure → `PARTIAL`, never `COMPLETE` | `test_pipeline.py::test_failing_shard_ends_partial_never_complete`, reconciler tests |
 | No secrets in logs | `test_api.py::test_logs_never_contain_auth_header_or_body` |
-| Mock never packaged | `test_packaging.py` |
+| Mock never packaged | `test_packaging.py` (the check on the three built zips runs only after `scripts/build.py`; CI's unit-test job does not build first, so there it covers a freshly built api zip only) |
 
-Deployed checks (run after `apply`; results to be committed under `bench/`): a
+Deployed checks (run after `apply`; results committed under `bench/`): a
 1M-path job within 3 SE, a replay with verdict `bit-identical`,
 `scripts/deployed_failclosed_test.py` (real network failure → rejection, no job
 created), and a fault-injected shard tripping the DLQ alarm and email.
@@ -244,6 +264,9 @@ That is one job, not a proof for every host.
 - **Mock Qrypt client**: lives in `tests/fakes/`, injected by tests through the
   `App` constructor, absent from every zip (asserted), and selectable by no
   environment variable. A missing or invalid token makes submit fail closed.
+  The Qrypt URL itself is configuration (`QRYPT_ENTROPY_URL`) and is not
+  recorded on the job, so `entropy_source: "qrypt"` reflects the deployed
+  configuration, not a check of who answered.
 - **Burst of submissions**: our limiter returns `429` with `Retry-After` before
   Qrypt is called. An entropy ceiling (default 5,000 KiB of the 10,240 KiB
   assessment budget) returns `409` once reached.
@@ -337,7 +360,7 @@ steady 100 jobs/day would.
 | EventBridge | scheduled rule, 8,640 invocations | scheduled rules are not charged | |
 | SSM Parameter Store | 2 standard parameters, standard throughput | no charge | |
 | S3 | one private bucket holding the ~16 MB worker zip (needed because the AWS provider cannot upload a zip this large inline); a PUT per code change and a GET per deploy | 5 GB, 2,000 PUTs and 20,000 GETs for the first 12 months only; after that about $0.0004/month | not always-free |
-| Budgets | 1 budget created by Terraform (+1 created in the console) | first 2 budgets free | |
+| Budgets | 1 budget created by Terraform (+1 created in the console), alerts only, no budget actions | monitoring and alerts are free; only action-enabled budgets are charged after the first 2 | |
 
 Not used, because none is always-free: NAT gateways, load balancers, EC2, RDS,
 Secrets Manager, API Gateway, X-Ray, customer-managed KMS keys, Step Functions
@@ -380,9 +403,11 @@ conflict is recorded here.
 | Correctness test | one test within 3 SE | two tests: fixed-seed deterministic, and fresh-seed statistical with its ~0.27% expected failure rate stated |
 | Fault injection | forced failure for the demo | off by default behind a Terraform variable; when on, a real worker raises |
 | CI provider and OIDC | GitHub repository, GitHub Actions | the repository is on a self-hosted GitLab, so CI is GitLab CI and AWS access in CI uses GitLab OIDC `id_tokens` to assume an IAM role (no long-lived keys). The IAM OIDC provider and the CI role (trusted only for this project's `main` branch, permissions scoped to `qmc-*` resources) are defined in `infra/bootstrap/` and were applied on 2026-10-15 (state name `bootstrap`). `AWS_ROLE_ARN` and `ALARM_EMAIL` are masked, protected CI variables, so `plan` runs on `main` and `apply` is a manual job |
-| CI runners | CI runs on every push | GitLab CI on the project's own shared, self-hosted runner (tagged `heavy` for the browser smoke test, which runs nightly and on demand on MRs); every push-path check runs on each push |
+| CI runners | CI runs on every push | GitLab CI on the project's own shared, self-hosted runner (tagged `heavy` for the browser smoke test, which runs nightly and on demand on MRs). Each push-path check runs on every push that changes its inputs (a docs-only push skips the Python and Terraform checks; gitleaks always runs), and the nightly schedule runs everything |
 | Ephemeral per-branch stacks (stretch) | GitHub Actions apply/destroy | not built yet |
 | Step Functions (stretch) | allowed | not used: it would break the $0 target at 100 jobs/day |
+| Repository host | GitHub repository | GitLab (`labs.gauntletai.com`), with GitLab CI (row above) |
+| Replay window | replay any past run ("last quarter's") | the public-demo rules purge stored jobs after 7 days (DynamoDB TTL), so the API replays only jobs from roughly the last 7 days (TTL deletes can lag by up to two days). Older runs are replayed offline from a saved bundle with `scripts/verify.py`, which recomputes every shard. The job ids cited in `bench/` expire on the same schedule |
 
 Other constraints:
 
@@ -416,8 +441,7 @@ Other constraints:
 
 ## What this system does not do
 
-- It runs without reserved concurrency for now (see the concurrency quota),
-  and the alarm email was not checked from here (only the alarm states).
+- The alarm email was not checked from here (only the alarm states).
 - It prices one product: a European call under Black-Scholes GBM. No portfolio
   VaR, no other payoffs, no variance reduction.
 - It does not queue jobs when Qrypt is down (`PENDING_ENTROPY` is a stretch not
