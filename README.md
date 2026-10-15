@@ -152,9 +152,10 @@ python scripts/qmc_cli.py submit --paths 1000 --shards 2 --fail-shards 0 --wait 
 terraform -chdir=infra apply                 # fault injection back off
 ```
 
-The shard is received 5 times, 180 s apart (the visibility timeout), before it
-reaches the DLQ, and CloudWatch can take a few more minutes to move the alarm,
-so expect roughly 15 minutes; cut the recording rather than shorten the timeouts. The DLQ is never consumed, so its alarm
+The shard is received 5 times before it reaches the DLQ. After each failure the
+worker releases the message after 10, 20, 30, 40 and 50 s, so it lands in the
+DLQ about 2.5 minutes after submit; CloudWatch can take a few more minutes to
+move the alarm. The DLQ is never consumed, so its alarm
 stays in `ALARM` until the queue is purged; purge it before a second recording
 or no new notification is sent.
 
@@ -209,7 +210,7 @@ fault-injected shard, which needs fault injection turned on.
 
 ## How correctness is checked
 
-All by committed tests (`pytest`, 222 tests including the adversarial set, 93% line+branch coverage of `src/qmc`;
+All by committed tests (`pytest`, 225 tests including the adversarial set, 93% line+branch coverage of `src/qmc`;
 CI gate 80%). Nothing is verified by a model's say-so.
 
 | Property | Test |
@@ -279,10 +280,14 @@ That is one job, not a proof for every host.
   assessment budget) returns `409` once reached.
 - **Duplicate SQS delivery**: shard writes are conditional puts; completion
   tracking uses DynamoDB number sets, so a redelivered message changes nothing.
-- **Worker failure**: after 5 receives, 180 s apart (AWS recommends a visibility
-  timeout of at least 6× the 30 s function timeout and `maxReceiveCount` of at
-  least 5; Terraform refuses a shorter visibility timeout), the message goes to the DLQ (which nothing
-  consumes, so the depth alarm fires). On the last receive the worker records the
+- **Worker failure**: after 5 receives the message goes to the DLQ. The queue's
+  visibility timeout is 180 s (AWS recommends at least 6× the 30 s function
+  timeout so throttled and in-flight work is not redelivered; Terraform refuses
+  less) and `maxReceiveCount` is 5 (AWS's recommended minimum). A shard that
+  fails does not wait out the 180 s: the worker sets its visibility to a linear
+  backoff (10 s × attempt) with `ChangeMessageVisibility`, so its retries and
+  the move to the DLQ take about 2.5 minutes, not 15. Nothing consumes the DLQ,
+  so its depth alarm fires. On the last receive the worker records the
   failure, and the job ends `PARTIAL` with `failed_shard_indexes` and
   `shard_errors`. No result is written for a `PARTIAL` job.
 - **Timeouts and crashes**: the reconciler runs every 5 minutes and marks jobs

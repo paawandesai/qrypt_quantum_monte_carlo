@@ -210,3 +210,41 @@ def test_verify_script_recomputes_bundle(env, tmp_path, capsys):
     spec.loader.exec_module(verify)
     assert verify.main(str(f)) == 0
     assert "verdict: bit-identical" in capsys.readouterr().out
+
+
+def test_failed_shard_is_released_after_backoff_not_full_visibility(env, monkeypatch):
+    monkeypatch.setenv("ENABLE_FAULT_INJECTION", "true")
+    app = make_app(env_extra={"ENABLE_FAULT_INJECTION": "true"})
+    _, body = submit(app, body=dict(STD, shards=1, paths=1000, fail_shards=[0]))
+    records = drain_queue(env["sqs"], env["queue_url"])
+    calls = []
+    real = env["store"].sqs.change_message_visibility
+
+    def spy(**kw):
+        calls.append(kw)
+        return real(**kw)
+
+    monkeypatch.setattr(env["store"].sqs, "change_message_visibility", spy)
+    for attempt in (1, 2, 3):
+        rec = dict(records[0], receiptHandle="h", attributes={"ApproximateReceiveCount": str(attempt)})
+        run_workers(env, [rec])
+    assert [c["VisibilityTimeout"] for c in calls] == [10, 20, 30]
+    assert all(c["QueueUrl"] == env["queue_url"] for c in calls)
+    assert get(app, body["job_id"])["status"] == "PARTIAL"
+
+
+def test_backoff_failure_does_not_change_the_outcome(env, monkeypatch):
+    def boom(**kw):
+        raise RuntimeError("sqs down")
+
+    monkeypatch.setattr(env["store"].sqs, "change_message_visibility", boom)
+    rec = {"messageId": "m1", "receiptHandle": "h", "body": "not json", "attributes": {"ApproximateReceiveCount": "1"}}
+    out, _ = run_workers(env, [rec])
+    assert out["batchItemFailures"] == [{"itemIdentifier": "m1"}]
+
+
+def test_retry_delay_is_linear_and_bounded(monkeypatch):
+    monkeypatch.setenv("RETRY_BACKOFF_S", "10")
+    assert [worker.retry_delay_s(i) for i in (1, 2, 5)] == [10, 20, 50]
+    monkeypatch.setenv("RETRY_BACKOFF_S", "100000")
+    assert worker.retry_delay_s(1) == 43_200
