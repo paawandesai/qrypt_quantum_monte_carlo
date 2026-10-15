@@ -3,7 +3,7 @@
 #   pre-commit install --hook-type pre-commit --hook-type pre-push
 # pre-commit (staged files only, target < 10 s): ruff lint + format, gitleaks,
 #   staged-diff credential/PRD check, fail-closed seed grep, terraform fmt.
-# pre-push (target < 60 s): mypy and the full unit suite (~13 s).
+# pre-push (target < 60 s): mypy and the full unit suite on 2 workers.
 # Needs gitleaks and terraform on PATH. Never bypass with --no-verify.
 default_install_hook_types: [pre-commit, pre-push]
 default_stages: [pre-commit]
@@ -52,7 +52,7 @@ repos:
         stages: [pre-push]
       - id: pytest
         name: unit tests (pre-push)
-        entry: python -m pytest -q -p no:cacheprovider
+        entry: python -m pytest -q -p no:cacheprovider -n 2
         language: system
         pass_filenames: false
         stages: [pre-push]
