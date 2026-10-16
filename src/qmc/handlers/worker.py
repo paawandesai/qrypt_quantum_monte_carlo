@@ -131,6 +131,16 @@ def handler(event, context):
         receive_count = int(record.get("attributes", {}).get("ApproximateReceiveCount", "1"))
         try:
             msg = json.loads(record["body"])
+            msg["job_id"], int(msg["shard_index"])
+        except Exception as exc:
+            # A body that is not a shard message never reaches process(), so
+            # count it here; otherwise only the DLQ alarm would see it, much later.
+            log.error(event="bad_message", attempt=receive_count, code=type(exc).__name__)
+            metrics.emit(WorkerErrors=1)
+            failures.append({"itemIdentifier": record["messageId"]})
+            release_for_retry(store, record, receive_count)
+            continue
+        try:
             process(store, msg, receive_count)
         except Exception:
             failures.append({"itemIdentifier": record["messageId"]})

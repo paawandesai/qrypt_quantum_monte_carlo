@@ -22,6 +22,7 @@ UNITS = {
     "ShardFailures": "Count",
     "WorkerErrors": "Count",
     "QryptFailures": "Count",
+    "ApiErrors": "Count",
 }
 
 

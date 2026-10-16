@@ -9,6 +9,8 @@ to the graders privately with the submission (it is never committed). In your ow
 deployment you read it from SSM as shown in the [quick-start](#grader-quick-start).
 The stack stays up through grading, then is destroyed and the key rotated.
 
+**Demo video:** _(link added with the submission)_
+
 A serverless, Terraform-managed Monte Carlo service that prices a European call
 option. Every job is seeded from one 1 KiB block of Qrypt quantum entropy, fans
 out across SQS-driven Lambda workers with independently derived shard seeds,
@@ -43,7 +45,7 @@ flowchart LR
   user([Analyst / auditor / operator]) -- "HTTPS + Bearer key" --> url[Lambda Function URL<br/>AuthType NONE]
   url --> api[api Lambda<br/>python3.13 arm64<br/>reserved concurrency 5]
   api -- "GET size=1 (1 KiB)" --> qrypt[(Qrypt Entropy API)]
-  api -- "GetParameter (cached per container)" --> ssm[(SSM Parameter Store<br/>2 SecureStrings, created out of band)]
+  api -- "GetParameter (cached 1 h)" --> ssm[(SSM Parameter Store<br/>2 SecureStrings, created out of band)]
   api -- "put job, counters" --> jobs[(DynamoDB jobs<br/>+ GSI by_status<br/>provisioned 5/5 + 5/5)]
   api -- "SendMessageBatch" --> q[[SQS shards<br/>SSE-SQS, long polling]]
   q -- "event-source mapping<br/>batch 1, max concurrency 5" --> w[worker Lambda<br/>numpy 2.5.4, arm64<br/>reserved concurrency 10]
@@ -57,7 +59,7 @@ flowchart LR
   rec --> shards
   api -. "DescribeTable (/health)" .-> shards
   api -. "queue depth (/system)" .-> dlq
-  api & w & rec -- "logs + EMF metrics" --> cw[CloudWatch Logs 14 d<br/>6 custom metrics, 5 alarms, dashboard]
+  api & w & rec -- "logs + EMF metrics" --> cw[CloudWatch Logs 14 d<br/>7 custom metrics, 5 alarms, dashboard]
   cw -- alarms --> sns[SNS alerts topic] --> mail([email])
   budget[AWS Budget $1/month] --> sns
 ```
@@ -135,7 +137,9 @@ account; Python 3.13 (`python3.13`); a Qrypt Entropy token. Everything runs in
    for a short trial apply without reservations by adding
    `-var worker_reserved_concurrency=-1 -var api_reserved_concurrency=-1`
    (this removes the hard cap on parallel spend; the event-source mapping's
-   maximum concurrency of 5 and the per-job limits still apply).
+   maximum concurrency of 5 and the per-job limits still apply). Pass the same
+   two flags on every later `apply` and `destroy`, or put them in a gitignored
+   `infra/terraform.tfvars`, or a later apply will try to reserve 10 + 5 and fail.
 3. Store the two secrets as SSM SecureStrings, off camera, never through Terraform.
    Write the files without a trailing newline (the API strips one anyway):
 
@@ -174,10 +178,13 @@ terraform -chdir=infra destroy               # needs build/*.zip and TF_VAR_alar
 
 `terraform destroy` removes all 39 resources. Left behind on purpose: the two
 SSM parameters and the console budget (delete them in the console if wanted).
-The project's own CI uses GitLab-managed state through `scripts/tf-init.sh`; to
-use that path, export `TF_HTTP_USERNAME` (`oauth2`), `TF_HTTP_PASSWORD` (a GitLab
-token with `api` scope) and a `TF_STATE_NAME` of your own before `init`, `apply`
-and `destroy`.
+The project's own CI uses GitLab-managed state through `scripts/tf-init.sh`. To
+use that path instead, delete `infra/backend_override.tf` (with it in place
+`tf-init.sh` fails), export `GITLAB_HOST`, `GITLAB_PROJECT_ID`, `GITLAB_TOKEN` (a
+token with `api` scope) and a `TF_STATE_NAME` of your own (the default is the
+live `dev` state), run `scripts/tf-init.sh`, then export `TF_HTTP_USERNAME=oauth2`
+and `TF_HTTP_PASSWORD="$GITLAB_TOKEN"` before `apply` and `destroy`, because the
+script sets them only for its own `init`.
 
 To see the DLQ alarm fire with a genuinely failing worker (the demo path),
 turn fault injection on, submit a job that names a failing shard, then turn it
@@ -194,14 +201,27 @@ worker releases the message after 10, 20, 30, 40 and 50 s, so it lands in the
 DLQ about 2.5 minutes after submit (measured on dev 2026-10-15, one run: job `PARTIAL` at 107 s, DLQ depth 1 at 162 s); CloudWatch can take a few more minutes to
 move the alarm. The `worker-errors` alarm trips on the first failed attempt.
 The DLQ is never consumed, so its alarm stays in `ALARM` until the queue is
-purged; purge it before a second recording or no new notification is sent.
+purged; purge it before a second recording or no new notification is sent:
+
+```bash
+aws sqs purge-queue --region us-east-1 --queue-url "$(terraform -chdir=infra output -raw dlq_url)"
+```
 
 **Recording or sharing a screen**: the AWS account id appears in `terraform apply`
 progress lines (queue URLs, SNS and budget ids), in the fault-injection diff (the
 functions' environment), and in alarm emails, whose footer also holds a working
-unsubscribe link. The queue-URL outputs are marked sensitive; mask the rest with
-`terraform -chdir=infra apply 2>&1 | sed -E 's/[0-9]{12}/XXXXXXXXXXXX/g'` and
-blur the email's account and footer lines.
+unsubscribe link. The queue-URL outputs are marked sensitive. Mask the rest by
+planning to a file and applying that file, each piped through an unbuffered
+`sed` (an interactive `apply` piped through `sed` hides its "Enter a value:"
+prompt), and blur the email's account and footer lines:
+
+```bash
+terraform -chdir=infra plan -out=demo.tfplan 2>&1 | sed -u -E 's/[0-9]{12}/XXXXXXXXXXXX/g'
+terraform -chdir=infra apply demo.tfplan 2>&1 | sed -u -E 's/[0-9]{12}/XXXXXXXXXXXX/g'
+```
+
+The plan file is gitignored; it holds the account id and the alarm email, so
+delete it afterwards.
 
 The bearer key is read from SSM by whoever deployed the stack; it is never
 printed in this README, in Terraform outputs or in logs.
@@ -214,15 +234,17 @@ All routes except the console (`GET`/`HEAD /` and `/static/*`) require `Authoriz
 |---|---|
 | `POST /jobs` | `202 {job_id, status: "QUEUED", master_seed_hex, ...}`. Body: `{S0, K, r, sigma, T, paths, shards}` |
 | `GET /jobs` | `{jobs: [...], next_before}` newest first; `?status=&limit=&before=`. Empty list on a fresh deployment |
-| `GET /jobs/{id}` | the job record with `progress` (shards done/failed), then `result` when `COMPLETE`; `404` with a message for an unknown id |
-| `POST /jobs/{id}/replay` | `202` new job with `replay_of`; `409` if the original is not `COMPLETE` or the runtime fingerprint differs; `429` once the daily replay cap is reached |
+| `GET /jobs/{id}` | the job record with `progress` (shards done/failed), then `result` when `COMPLETE`; `404` with a message for an unknown id, `400 invalid_job_id` for one that is not 32 hex characters |
+| `POST /jobs/{id}/replay` | `202` new job with `replay_of`; `409` if the original is not `COMPLETE` or the runtime fingerprint differs; `429` with `Retry-After` once the daily replay cap is reached (100 per UTC day by default) |
 | `GET /jobs/{id}/bundle` | parameters, seed, provenance and hex results for `scripts/verify.py` |
-| `GET /health` | `200` or `503`: both tables `ACTIVE` and SSM reachable (a metadata-only `GetParameter`, never a decrypt), plus configuration and last-success times |
+| `GET /health` | `200` or `503`: both tables `ACTIVE` and SSM reachable (`GetParameter` with `WithDecryption=false`, so the check itself spends no KMS request; authenticating the request may decrypt the key, cached for 1 hour), plus configuration and last-success times |
 | `GET /system` | limits, entropy used vs ceiling, Qrypt rate limit, DLQ depth, runtime fingerprint |
 
-Input limits (Terraform variables): `paths ≤ 10,000,000`, `shards ≤ 100`,
-`paths/shards ≤ 2,000,000`, `shards ≤ paths`, `0 < sigma ≤ 5`, `0 < T ≤ 50`,
-`0 < S0, K ≤ 1e6`, `-1 ≤ r ≤ 1`. Every violation is listed in the 400 body.
+Input limits: `paths ≤ 10,000,000`, `shards ≤ 100`, `paths/shards ≤ 2,000,000`
+(these three are Terraform variables), `shards ≤ paths`, `0 < sigma ≤ 5`,
+`0 < T ≤ 50`, `0 < S0, K ≤ 1e6`, `-1 ≤ r ≤ 1` (fixed in `src/qmc/params.py`).
+Every type and range violation is listed in the 400 body; missing or unknown
+fields are reported first, on their own.
 
 ## Web console
 
@@ -248,13 +270,14 @@ data only" banner, `noindex`, and a strict Content-Security-Policy.
 `tests/e2e/console_smoke.mjs` drives it with Playwright (connect, wrong key → 401,
 client validation, submit → `COMPLETE` within 3 SE, replay → bit-identical,
 fault-injected shard → `PARTIAL`, no horizontal scroll at 390 px). It passes
-against the moto-backed local server in `tests/e2e/local_server.py`, and was
-run against the deployed stack on 2026-10-15 for every step except the
-fault-injected shard, which needs fault injection turned on.
+against the moto-backed local server in `tests/e2e/local_server.py`. It was
+also run by hand against the deployed stack on 2026-10-15 for every step except
+the fault-injected shard (which needs fault injection on); that run's output was
+not committed.
 
 ## How correctness is checked
 
-All by committed tests (`pytest`, 234 tests including the adversarial set, 94% line+branch coverage of `src/qmc`;
+All by committed tests (`pytest`, 236 tests including the adversarial set, 3 of which skip until `scripts/build.py` has run; 94% line+branch coverage of `src/qmc`;
 CI gate 80%). Nothing is verified by a model's say-so.
 
 | Property | Test |
@@ -273,8 +296,9 @@ CI gate 80%). Nothing is verified by a model's say-so.
 Deployed checks (run after `apply`; results committed under `bench/`): a
 1M-path job within 3 SE, a replay with verdict `bit-identical`,
 `scripts/deployed_failclosed_test.py` (real network failure → rejection, no job
-created), and a fault-injected shard tripping the DLQ alarm (whose email has not
-been checked from here; see [What this system does not do](#what-this-system-does-not-do)).
+created), and a fault-injected shard tripping the DLQ alarm. The alarm email
+subscription was confirmed on 2026-10-16; no alarm email has been recorded yet
+(see [What this system does not do](#what-this-system-does-not-do)).
 
 Run on 2026-10-14 (details and job ids in `bench/deployed-checks-2026-10-14.md`):
 the 1M-path job gave 10.453436 (SE 0.014719, z = +0.19 against 10.450584), and
@@ -347,18 +371,22 @@ That is one job, not a proof for every host.
   Every failed attempt emits the `WorkerErrors` metric. The handler catches the
   exception to report a partial batch failure, so Lambda's own `Errors` metric
   never sees it; the `worker-errors` alarm therefore sums `Errors` and
-  `WorkerErrors`. Likewise `api-errors` sums `Errors` and the Function URL's
-  `Url5xxCount`, because the API turns unexpected exceptions into 500 responses
-  (a fail-closed Qrypt rejection is a 503 too, so a Qrypt outage trips both
-  `qrypt-failures` and `api-errors`).
+  `WorkerErrors`; a message too malformed to name its shard counts too. Likewise
+  `api-errors` sums `Errors` and the `ApiErrors` metric, which the API emits
+  when it turns an unexpected exception into a 500 or cannot load its key. A
+  fail-closed Qrypt rejection (503/504) is expected behaviour and trips only
+  `qrypt-failures`. Every alarm trips on any failing minute among the last 3,
+  because EMF metrics arrive after a delay; so one incident sends one `ALARM`
+  and one `OK` email, not one per retry.
 - **Timeouts and crashes**: the reconciler runs every 5 minutes and marks jobs
   still active 30 minutes after submit as `PARTIAL`, listing the missing shards.
   The deadline is derived in Terraform as receives × visibility timeout + 15
   minutes, so a shard still being retried is never written off.
   It also re-aggregates a job whose aggregator died mid-write.
 - **Lambda timeout**: the per-shard cap (2M paths) keeps a shard well under the
-  30 s worker timeout: measured 100k-path shards bill about 170 ms on average,
-  so a 2M-path shard is estimated at roughly 3.5 s (extrapolated, not measured).
+  30 s worker timeout: worker invocations billed 170 ms on average (p50 38 ms)
+  over 3 days of mixed jobs, mostly 100k-path shards. Scaling that mean by 20
+  gives roughly 3.5 s for a 2M-path shard (extrapolated, not measured).
   Oversized `paths/shards` ratios are rejected at submit.
 - **Out-of-range numbers**: NaN, Infinity, booleans, strings and integers too
   large for a float64 are each a 400 with a message, never a 500.
@@ -388,9 +416,10 @@ That is one job, not a proof for every host.
   because it decrypts by default and would put the plaintext into state and plan
   output. They are never Terraform variables, Lambda environment variables,
   outputs, or in `.env.example`. The api function caches each for one hour per
-  container (at most 2 KMS decrypts per container per hour), strips surrounding
-  whitespace, and `/health` checks SSM with a metadata-only call that never
-  decrypts. **Rotating a key**: put the new value with
+  container (at most 2 KMS decrypts per container per hour) and strips surrounding
+  whitespace. If a refresh fails, the cached value is served for up to 24 more
+  hours, so a short SSM outage does not lock out the API. The `/health` check
+  calls SSM with `WithDecryption=false`, so the check itself never decrypts. **Rotating a key**: put the new value with
   `aws ssm put-parameter --overwrite`; warm containers pick it up within the
   hour, or immediately after any function configuration change (for example
   `terraform apply` with a changed variable), which replaces the containers.
@@ -417,8 +446,9 @@ That is one job, not a proof for every host.
 - **Encryption**: DynamoDB with AWS-owned keys, SQS with SSE-SQS, TLS everywhere.
   Customer-managed KMS keys were rejected on cost (~$1/month each); Checkov
   `CKV_AWS_119` and similar are suppressed with that reason, inline.
-- **Logging**: an allow-list logger emits request id, method, path (with job ids
-  collapsed), status, job id, shard index and error codes only. Events, bodies
+- **Logging**: an allow-list logger (`src/qmc/log.py`) emits only ids (request,
+  job, replay-of, shard index), method, path (with job ids collapsed), status,
+  counts, durations, attempt numbers and error codes or causes. Events, bodies
   and headers are never logged. Log groups are declared in Terraform with 14-day retention.
 - **Public demo rules**: `noindex` (header and meta), no third-party analytics,
   a persistent "Demo — synthetic data only" banner in the console, DynamoDB TTL
@@ -445,12 +475,12 @@ steady 100 jobs/day would.
 | Lambda compute | worker 170 ms × 1 GB × 30,000 = 5,086 GB-s; api 158 ms × 0.5 GB × 93,000 = 7,368 GB-s; reconciler 260 ms × 0.25 GB × 8,640 = 562 GB-s ≈ 13,000 GB-s (measured mean billed duration). Even if every invocation billed the p95 (1,354 / 448 / 1,332 ms) it would be ≈ 64,000 GB-s | 400,000 GB-s | ~97% (84% at p95) |
 | DynamoDB | provisioned 20 RCU + 20 WCU across both tables and the GSI; storage < 100 MB (TTL 7 days) | 25 RCU, 25 WCU, 25 GB per account per region | 5 RCU/WCU |
 | SQS | idle long polling by the event-source mapping ≈ 0.26–0.65M requests (5 pollers shrinking to 2, 20 s waits) + jobs: 3,000 × (1 batch send + 10 receives + 10 deletes) ≈ 63k + `/system` reads | 1M | ~29% worst case |
-| KMS | 2 SecureString decrypts per api container per hour at most (secrets cached for 1 hour); worst case 5 warm containers all month ≈ 7,200; `/health` never decrypts | 20,000 requests | ≥ 64% |
-| CloudWatch | 6 custom metrics (dimensions Environment + Function only; never a job id), 5 alarms watching 7 metrics (worker-errors and api-errors each sum two), 1 dashboard; logs well under 5 GB | 10 metrics, 10 alarm metrics, 3 dashboards, 5 GB logs | 4 metrics, 3 alarm metrics |
+| KMS | 2 SecureString decrypts per api container per hour at most (secrets cached for 1 hour); worst case 5 warm containers all month ≈ 7,200; the health check itself never decrypts | 20,000 requests | ≥ 64% |
+| CloudWatch | 7 custom metrics (dimensions Environment + Function only; never a job id), 5 alarms watching 7 metrics (worker-errors and api-errors each sum two), 1 dashboard; logs well under 5 GB | 10 metrics, 10 alarm metrics, 3 dashboards, 5 GB logs | 3 metrics, 3 alarm metrics |
 | SNS | a handful of alarm publishes + emails | 1M publishes, 1,000 emails | |
 | EventBridge | scheduled rule, 8,640 invocations | scheduled rules are not charged | |
 | SSM Parameter Store | 2 standard parameters, standard throughput | no charge | |
-| S3 | one private bucket holding the ~16 MB worker zip (needed because the AWS provider cannot upload a zip this large inline); a PUT per code change and a GET per deploy | 5 GB, 2,000 PUTs and 20,000 GETs for the first 12 months only; after that about $0.0004/month | not always-free |
+| S3 | one private bucket holding the ~16 MB worker zip (needed because the AWS provider cannot upload a zip this large inline); a PUT per code change and a GET per deploy | none always-free: accounts created before 15 July 2025 get 5 GB, 2,000 PUTs and 20,000 GETs for their first 12 months; otherwise about $0.0004/month, which Free-plan credits cover | not always-free |
 | Budgets | 1 budget created by Terraform (+1 created in the console), alerts only, no budget actions | monitoring and alerts are free; only action-enabled budgets are charged after the first 2 | |
 
 Not used, because none is always-free: NAT gateways, load balancers, EC2, RDS,
@@ -493,7 +523,7 @@ conflict is recorded here.
 | IAM wildcards | no `*` actions or resources | No `*` Action and no bare `*` Resource in the three function roles. Two wildcard **principals** on the Function URL permissions, which AWS requires for `AuthType=NONE`, both condition-scoped (above). The CI deploy role (`infra/bootstrap/`) is scoped by the `qmc-` name prefix, with these exceptions: two read-only `Resource: "*"` grants AWS cannot scope, `logs:DescribeLogGroups` (a list call) and `lambda:GetEventSourceMapping` (after a mapping is deleted, Terraform polls for it and Lambda authorizes the lookup of a missing mapping against `*`; with the type-scoped ARN the poll got AccessDenied and `destroy` failed, rehearsed 2026-10-15); and Get, Update, Delete and tagging of event-source mappings on the type-scoped ARN `event-source-mapping:*`, because only Create carries a function ARN to condition on. Its IAM rights cover only roles named `qmc-*-api`, `qmc-*-worker` and `qmc-*-reconciler`, and an explicit deny stops it editing its own role; it can still change those function roles' policies, which a permissions boundary would close (not built). Checkov `CKV_AWS_356` is suppressed inline with the reason |
 | IaC scanner | Checkov or tfsec | Checkov; tfsec is deprecated into Trivy |
 | API auth | `AWS_IAM` or bearer key | bearer key, described as an application-layer key check on a public endpoint that still invokes and bills |
-| Health endpoint | checks DynamoDB and SSM reachability | `DescribeTable` on both tables and a metadata-only `GetParameter` on the API key parameter (`WithDecryption=false`, so no KMS request and no secret value); `503` if either fails. Also reports configuration and last-success times |
+| Health endpoint | checks DynamoDB and SSM reachability | `DescribeTable` on both tables and `GetParameter` with `WithDecryption=false` on the API key parameter (SSM returns the value still encrypted, so no KMS request and no plaintext); `503` if either fails. Also reports configuration and last-success times |
 | Local Qrypt token | store `QRYPT_API_KEY` in a local `.env` | not in `.env` or `.env.example`. The token lives only in SSM, nothing local calls Qrypt, and tests use the mock, so a local copy would only be one more place for it to leak |
 | Mock Qrypt client | mock so tests run without a token | exists only in `tests/`; no environment variable can switch deployed code to it |
 | Replay claim | bit-identical | claimed only when the float64 hex test passes; otherwise the system reports `different` and shows the values |
@@ -504,7 +534,7 @@ conflict is recorded here.
 | Ephemeral per-branch stacks (stretch) | GitHub Actions apply/destroy | not built yet |
 | Step Functions (stretch) | allowed | not used: it would break the $0 target at 100 jobs/day |
 | Repository host | GitHub repository | GitLab (`labs.gauntletai.com`), with GitLab CI (row above) |
-| Always-free services only | Lambda, DynamoDB, SQS, SNS, CloudWatch, SSM | adds one private S3 bucket for the ~16 MB worker zip, because the AWS provider cannot upload a zip that large inline. S3 is free for an account's first 12 months and then about $0.0004/month, so "$0" holds with that footnote |
+| Always-free services only | Lambda, DynamoDB, SQS, SNS, CloudWatch, SSM | adds one private S3 bucket for the ~16 MB worker zip, because the AWS provider cannot upload a zip that large inline. S3 has no always-free tier: it is free for the first 12 months only on accounts created before 15 July 2025, and otherwise about $0.0004/month (covered by Free-plan credits), so "$0" holds with that footnote |
 | One stack per account | (not stated) | the free-tier arithmetic assumes one stack per account and region: a second stack doubles DynamoDB to 40 RCU/WCU (over the free 25) and the alarm and SQS polling counts. Use a separate account for a second environment, or destroy one first |
 | Replay window | replay any past run ("last quarter's") | the public-demo rules purge stored jobs after 7 days (DynamoDB TTL), so the API replays only jobs from roughly the last 7 days (TTL deletes can lag by up to two days). Older runs are replayed offline from a saved bundle with `scripts/verify.py`, which recomputes every shard. The job ids cited in `bench/` expire on the same schedule |
 
@@ -541,7 +571,7 @@ Other constraints:
 
 ## What this system does not do
 
-- The alarm email was not checked from here (only the alarm states).
+- No alarm email has been recorded yet: the email subscription was only confirmed on 2026-10-16, after the alarm rehearsals (which checked alarm states).
 - It prices one product: a European call under Black-Scholes GBM. No portfolio
   VaR, no other payoffs, no variance reduction.
 - It does not show per-job cost (GB-seconds, request count) in the job result;
@@ -565,8 +595,8 @@ src/qmc/              deployed code (packaged into Lambda)
   jobs.py             lifecycle and finalization
   store.py            DynamoDB / SQS access
   handlers/           api, worker, reconciler entry points
-tests/                pytest suite; tests/fakes/ holds the mock Qrypt client
   console/            static web console (HTML, CSS, vanilla JS)
+tests/                pytest suite; tests/fakes/ holds the mock Qrypt client
 scripts/              build, CI checks, client, verify, benchmarks
 eval/adversarial/     hostile-text cases for every untrusted channel
 bench/                committed benchmark and deployed-check results

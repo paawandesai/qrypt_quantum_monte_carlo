@@ -2,9 +2,10 @@
 
 Tables
 - jobs:   PK job_id (S). GSI "by_status": status (S) + created_at (S).
-          Also holds two counter items whose ids start with "#" (rate limit
-          windows and the entropy ledger); they have no status, so they never
-          appear in the GSI, and the API's job-id format can't address them.
+          Also holds counter items whose ids start with "#": one per Qrypt
+          rate-limit window, one per replay day, and the entropy ledger. They
+          have no status, so they never appear in the GSI, and the API's job-id
+          format can't address them.
 - shards: PK job_id (S) + shard_index (N). Conditional put makes a redelivered
           shard a no-op.
 

@@ -120,7 +120,7 @@ class EntropySource(Protocol):
 
 class QryptClient:
     """Fetches one 1 KiB block per call. The token is supplied by a callable so
-    the handler can load it lazily from SSM and cache it per container."""
+    the handler can load it lazily from SSM and cache it (for 1 hour)."""
 
     def __init__(self, token_provider, url: str = DEFAULT_URL, timeout_s: float = 5.0):
         self._token_provider = token_provider

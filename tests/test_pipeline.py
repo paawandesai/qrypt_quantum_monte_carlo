@@ -92,14 +92,24 @@ def test_replay_is_bit_identical_and_uses_no_entropy(env):
     assert len(env["store"].get_shards(rep["job_id"])) == 5
 
 
-def test_replays_are_capped_per_day(env):
+def test_replays_are_capped_per_day(env, monkeypatch):
     app = make_app(env_extra={"REPLAY_PER_DAY": "2"})
     _, body = submit(app, body=dict(STD, paths=1000, shards=1))
     run_workers(env)
     path = f"/jobs/{body['job_id']}/replay"
     assert [submit(app, body=None, path=path)[0] for _ in range(2)] == [202, 202]
-    status, rep = submit(app, body=None, path=path)
-    assert status == 429 and rep["error"] == "replay_limit_reached" and rep["job_created"] is False
+
+    resp = app.handle(fn_url_event("POST", path), CTX)
+    rep = json.loads(resp["body"])
+    assert resp["statusCode"] == 429 and rep["error"] == "replay_limit_reached" and rep["job_created"] is False
+    retry_after = int(resp["headers"]["Retry-After"])
+    assert 0 < retry_after <= 86400 and rep["retry_after_s"] == retry_after
+    listed = json.loads(app.handle(fn_url_event("GET", "/jobs"), CTX)["body"])
+    assert len(listed["jobs"]) == 3  # the original and two replays; the refused one created nothing
+
+    tomorrow = ids.plus(ids.now(), 86400)
+    monkeypatch.setattr(ids, "now", lambda: tomorrow)
+    assert submit(app, body=None, path=path)[0] == 202
 
 
 def test_replay_refused_on_runtime_mismatch(env):
@@ -262,3 +272,14 @@ def test_retry_delay_is_linear_and_bounded(monkeypatch):
     assert [worker.retry_delay_s(i) for i in (1, 2, 5)] == [10, 20, 50]
     monkeypatch.setenv("RETRY_BACKOFF_S", "100000")
     assert worker.retry_delay_s(1) == 43_200
+
+
+def test_malformed_message_is_counted_and_retried(env, capsys):
+    records = [
+        {"messageId": "m1", "body": "not json", "attributes": {"ApproximateReceiveCount": "1"}},
+        {"messageId": "m2", "body": json.dumps({"job_id": "x"}), "attributes": {"ApproximateReceiveCount": "1"}},
+    ]
+    result, _ = run_workers(env, records)
+    assert result == {"batchItemFailures": [{"itemIdentifier": "m1"}, {"itemIdentifier": "m2"}]}
+    out = capsys.readouterr().out
+    assert out.count('"WorkerErrors": 1') == 2 and out.count('"bad_message"') == 2

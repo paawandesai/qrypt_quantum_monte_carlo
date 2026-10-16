@@ -2,7 +2,8 @@
 
 Routes
   GET  /                      web console (static, no auth)
-  GET  /health                configuration + last-success times (never decrypts, never calls Qrypt)
+  GET  /health                configuration, DynamoDB + SSM reachability, last-success times
+                              (the check itself never decrypts and never calls Qrypt)
   GET  /system                limits, entropy ledger, DLQ depth
   GET  /jobs                  list, newest first (?status=&limit=&before=)
   POST /jobs                  validate, rate-limit, fetch Qrypt entropy, create, enqueue
@@ -77,27 +78,51 @@ class SecretCache:
     free 20,000/month: at most 2 per container per hour. Surrounding whitespace,
     such as the newline an editor or `print()` leaves in the file the parameter
     was created from, is stripped; it is never part of a key or token.
+
+    If a refresh fails (an SSM or KMS blip), the cached value keeps being served
+    for up to stale_s past its TTL and the refresh is retried on the next call,
+    so a short SSM outage does not turn into a full API outage.
     """
 
-    def __init__(self, ssm_client_factory, ttl_s: float = 3600.0, clock=time.monotonic):
+    def __init__(
+        self,
+        ssm_client_factory,
+        ttl_s: float = 3600.0,
+        clock=time.monotonic,
+        stale_s: float = 86400.0,
+    ):
         self._factory = ssm_client_factory
+        self._client = None
         self._ttl_s = ttl_s
+        self._stale_s = stale_s
         self._clock = clock
         self._values: dict[str, tuple[str, float]] = {}
         self.loaded_at: dict[str, str] = {}
 
+    def _ssm(self):
+        if self._client is None:
+            self._client = self._factory()
+        return self._client
+
     def get(self, name: str) -> str:
         cached = self._values.get(name)
-        if cached is None or self._clock() - cached[1] >= self._ttl_s:
-            resp = self._factory().get_parameter(Name=name, WithDecryption=True)
+        age = None if cached is None else self._clock() - cached[1]
+        if age is None or age >= self._ttl_s:
+            try:
+                resp = self._ssm().get_parameter(Name=name, WithDecryption=True)
+            except Exception:
+                if cached is None or age is None or age >= self._ttl_s + self._stale_s:
+                    raise
+                log.error(event="secret_refresh_failed")
+                return cached[0]
             self._values[name] = (resp["Parameter"]["Value"].strip(), self._clock())
             self.loaded_at[name] = ids.iso(ids.now())
         return self._values[name][0]
 
     def reachable(self, name: str) -> bool:
-        """SSM reachability without a decrypt: metadata only, so no KMS request."""
+        """SSM reachability without a decrypt (WithDecryption=False), so no KMS request."""
         try:
-            self._factory().get_parameter(Name=name, WithDecryption=False)
+            self._ssm().get_parameter(Name=name, WithDecryption=False)
             return True
         except Exception:
             return False
@@ -166,6 +191,7 @@ class App:
             resp = _json(exc.status, exc.body, exc.headers)
         except Exception:
             log.error(event="unhandled", request_id=request_id, method=method, path=_path_label(path))
+            metrics.emit(ApiErrors=1)
             resp = _json(500, {"error": "internal_error", "message": "unexpected server error"})
         log.info(
             event="request",
@@ -186,6 +212,7 @@ class App:
             expected = self.secrets.get(self.env["API_KEY_PARAM"])
         except Exception:
             log.error(event="api_key_unavailable")
+            metrics.emit(ApiErrors=1)
             raise HttpError(503, "api_key_unavailable", "API key could not be loaded") from None
         if not hmac.compare_digest(supplied[7:].encode(), expected.encode()):
             raise HttpError(401, "unauthorized", "invalid bearer key")
@@ -259,8 +286,8 @@ class App:
 
     def health(self) -> dict:
         tables = self.store.describe_tables()
-        # SSM reachability: parameter metadata only (WithDecryption=false), so
-        # health never spends a KMS request or touches a secret value.
+        # SSM reachability with WithDecryption=false: SSM returns the value still
+        # encrypted, so the check spends no KMS request and never sees the secret.
         ssm_ok = self.secrets.reachable(self.env.get("API_KEY_PARAM", ""))
         ok = all(v == "ACTIVE" for v in tables.values()) and ssm_ok
         return _json(
@@ -447,10 +474,13 @@ class App:
         if not self.store.take_rate_token(
             f"replay-{today:%Y-%m-%d}", self.replay_limit_per_day, ids.epoch_s(ids.plus(today, 2 * 86400))
         ):
+            retry_after = 86400 - int(today.timestamp()) % 86400
             raise HttpError(
                 429,
                 "replay_limit_reached",
                 f"at most {self.replay_limit_per_day} replays per UTC day; try again tomorrow",
+                headers={"Retry-After": str(retry_after)},
+                retry_after_s=retry_after,
                 job_created=False,
             )
         params = params_from_record(original)

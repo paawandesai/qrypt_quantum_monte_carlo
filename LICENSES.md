@@ -2,6 +2,7 @@
 
 Audit run with `pip-licenses --from=mixed` (re-run before submission; CI's
 `license-audit` job regenerates it and fails on GPL/AGPL, with partial matching so "GPLv2", "GPLv3+" and SPDX ids are caught too). Last run: 2026-10-15.
+`pip-licenses` leaves itself and its own dependencies out of its report by default; they are dev-only and checked by hand: pip-licenses 5.5.5 (MIT), prettytable 3.18.0 (BSD-3-Clause), wcwidth 0.9.2 (MIT).
 
 ## Packaged into Lambda
 
