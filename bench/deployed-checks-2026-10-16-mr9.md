@@ -59,3 +59,13 @@ earlier, unconfirmed one had been deleted by AWS).
 
 The candidate purged the DLQ in the SQS console afterwards; `/system` reported
 depth 0 at about 22:09Z.
+
+## Maximum-size shard
+
+Job `74d51e9ad14038a26d902bb88f108755`: 2,000,000 paths in 1 shard (the
+per-shard cap), submitted 22:39:11.84Z, `COMPLETE` at 22:39:13.56Z (1.7 s);
+estimate 10.478171110516419, z = +2.64 against Black-Scholes (within 3 SE).
+The worker's `shard_done` log line gives 707.7 ms of simulation; its REPORT
+line gives Duration 994.90 ms, Billed Duration 1284 ms, Init Duration 288.58 ms
+(a cold start), Max Memory Used 126 MB of 1024 MB. That is about 4% of the 30 s
+worker timeout.

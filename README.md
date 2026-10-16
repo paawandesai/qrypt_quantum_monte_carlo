@@ -389,9 +389,11 @@ That is one job, not a proof for every host.
   minutes, so a shard still being retried is never written off.
   It also re-aggregates a job whose aggregator died mid-write.
 - **Lambda timeout**: the per-shard cap (2M paths) keeps a shard well under the
-  30 s worker timeout: worker invocations billed 170 ms on average (p50 38 ms)
-  over 3 days of mixed jobs, mostly 100k-path shards. Scaling that mean by 20
-  gives roughly 3.5 s for a 2M-path shard (extrapolated, not measured).
+  30 s worker timeout. A maximum-size shard was measured on dev on 2026-10-16
+  (job `74d51e9ad14038a26d902bb88f108755`, 2,000,000 paths in 1 shard): 708 ms
+  of simulation, a 995 ms invocation, 1,284 ms billed including a 289 ms cold
+  start, 126 MB of the 1,024 MB used (from the worker's log and REPORT line;
+  `bench/deployed-checks-2026-10-16-mr9.md`).
   Oversized `paths/shards` ratios are rejected at submit.
 - **Out-of-range numbers**: NaN, Infinity, booleans, strings and integers too
   large for a float64 are each a 400 with a message, never a 500.
