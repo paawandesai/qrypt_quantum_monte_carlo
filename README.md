@@ -1,6 +1,6 @@
 # Quantum-seeded Monte Carlo on AWS Lambda
 
-> **One-line description (≤ 120 characters):** _to be written by Paawan before submission._
+> Serverless Monte Carlo option pricer on AWS, seeded by Qrypt quantum entropy, with bit-identical replay and $0 idle cost.
 
 **Deployed endpoint:** <https://tiszf5ypkbkclttornac5wabgu0lscrt.lambda-url.us-east-1.on.aws/>
 (web console at [`/#/new`](https://tiszf5ypkbkclttornac5wabgu0lscrt.lambda-url.us-east-1.on.aws/#/new)).
@@ -392,7 +392,12 @@ reserved concurrency (worker 10, api 5), `maximum_concurrency` 5 on the SQS
 event-source mapping, the per-job `paths`/`shards` caps, and the DLQ
 `maxReceiveCount` of 5. Costs on the deploying account are the deployer's own.
 
-The budget screenshot (account id redacted) will be added after the first apply.
+The Terraform-created budget `qmc-dev-monthly` ($1/month, alerts at actual > 1% and
+forecast > 100%, to email and the SNS topic), captured 2026-10-16:
+
+![Budget qmc-dev-monthly: $0.00 spent of $1.00](docs/images/budget-overview.png)
+
+![Budget alerts: actual cost > 1% and forecasted cost > 100%, neither exceeded](docs/images/budget-alerts.png)
 
 ## Benchmarks
 
