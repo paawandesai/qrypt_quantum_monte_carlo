@@ -1,0 +1,311 @@
+{
+  "n": 50,
+  "accepted": 48,
+  "first_request_ms": 699.3,
+  "warm_p50_ms": 353.2,
+  "warm_p95_ms": 623.6,
+  "warm_max_ms": 729.3,
+  "samples": [
+    {
+      "i": 0,
+      "status": 202,
+      "ms": 699.3,
+      "error": null
+    },
+    {
+      "i": 1,
+      "status": 202,
+      "ms": 456.8,
+      "error": null
+    },
+    {
+      "i": 2,
+      "status": 202,
+      "ms": 353.2,
+      "error": null
+    },
+    {
+      "i": 3,
+      "status": 202,
+      "ms": 355.1,
+      "error": null
+    },
+    {
+      "i": 4,
+      "status": 202,
+      "ms": 376.4,
+      "error": null
+    },
+    {
+      "i": 5,
+      "status": 202,
+      "ms": 729.3,
+      "error": null
+    },
+    {
+      "i": 6,
+      "status": 202,
+      "ms": 286.9,
+      "error": null
+    },
+    {
+      "i": 7,
+      "status": 202,
+      "ms": 331.7,
+      "error": null
+    },
+    {
+      "i": 8,
+      "status": 202,
+      "ms": 605.2,
+      "error": null
+    },
+    {
+      "i": 9,
+      "status": 202,
+      "ms": 315.0,
+      "error": null
+    },
+    {
+      "i": 10,
+      "status": 202,
+      "ms": 398.8,
+      "error": null
+    },
+    {
+      "i": 11,
+      "status": 202,
+      "ms": 292.4,
+      "error": null
+    },
+    {
+      "i": 12,
+      "status": 202,
+      "ms": 274.7,
+      "error": null
+    },
+    {
+      "i": 13,
+      "status": 202,
+      "ms": 364.4,
+      "error": null
+    },
+    {
+      "i": 14,
+      "status": 202,
+      "ms": 324.7,
+      "error": null
+    },
+    {
+      "i": 15,
+      "status": 202,
+      "ms": 307.0,
+      "error": null
+    },
+    {
+      "i": 16,
+      "status": 202,
+      "ms": 278.2,
+      "error": null
+    },
+    {
+      "i": 17,
+      "status": 202,
+      "ms": 305.5,
+      "error": null
+    },
+    {
+      "i": 18,
+      "status": 202,
+      "ms": 321.3,
+      "error": null
+    },
+    {
+      "i": 19,
+      "status": 202,
+      "ms": 392.4,
+      "error": null
+    },
+    {
+      "i": 20,
+      "status": 202,
+      "ms": 324.8,
+      "error": null
+    },
+    {
+      "i": 21,
+      "status": 503,
+      "ms": 274.1,
+      "error": "entropy_unavailable"
+    },
+    {
+      "i": 22,
+      "status": 202,
+      "ms": 438.2,
+      "error": null
+    },
+    {
+      "i": 23,
+      "status": 202,
+      "ms": 317.3,
+      "error": null
+    },
+    {
+      "i": 24,
+      "status": 202,
+      "ms": 315.0,
+      "error": null
+    },
+    {
+      "i": 25,
+      "status": 202,
+      "ms": 337.9,
+      "error": null
+    },
+    {
+      "i": 26,
+      "status": 202,
+      "ms": 362.1,
+      "error": null
+    },
+    {
+      "i": 27,
+      "status": 202,
+      "ms": 292.4,
+      "error": null
+    },
+    {
+      "i": 28,
+      "status": 202,
+      "ms": 409.7,
+      "error": null
+    },
+    {
+      "i": 29,
+      "status": 202,
+      "ms": 353.8,
+      "error": null
+    },
+    {
+      "i": 30,
+      "status": 202,
+      "ms": 600.5,
+      "error": null
+    },
+    {
+      "i": 31,
+      "status": 202,
+      "ms": 310.3,
+      "error": null
+    },
+    {
+      "i": 32,
+      "status": 202,
+      "ms": 341.0,
+      "error": null
+    },
+    {
+      "i": 33,
+      "status": 202,
+      "ms": 365.8,
+      "error": null
+    },
+    {
+      "i": 34,
+      "status": 202,
+      "ms": 619.5,
+      "error": null
+    },
+    {
+      "i": 35,
+      "status": 202,
+      "ms": 579.5,
+      "error": null
+    },
+    {
+      "i": 36,
+      "status": 202,
+      "ms": 285.2,
+      "error": null
+    },
+    {
+      "i": 37,
+      "status": 202,
+      "ms": 443.8,
+      "error": null
+    },
+    {
+      "i": 38,
+      "status": 202,
+      "ms": 392.5,
+      "error": null
+    },
+    {
+      "i": 39,
+      "status": 202,
+      "ms": 309.3,
+      "error": null
+    },
+    {
+      "i": 40,
+      "status": 202,
+      "ms": 346.7,
+      "error": null
+    },
+    {
+      "i": 41,
+      "status": 202,
+      "ms": 610.9,
+      "error": null
+    },
+    {
+      "i": 42,
+      "status": 202,
+      "ms": 623.6,
+      "error": null
+    },
+    {
+      "i": 43,
+      "status": 202,
+      "ms": 364.9,
+      "error": null
+    },
+    {
+      "i": 44,
+      "status": 504,
+      "ms": 5687.1,
+      "error": "entropy_unavailable"
+    },
+    {
+      "i": 45,
+      "status": 202,
+      "ms": 631.4,
+      "error": null
+    },
+    {
+      "i": 46,
+      "status": 202,
+      "ms": 323.1,
+      "error": null
+    },
+    {
+      "i": 47,
+      "status": 202,
+      "ms": 349.9,
+      "error": null
+    },
+    {
+      "i": 48,
+      "status": 202,
+      "ms": 325.7,
+      "error": null
+    },
+    {
+      "i": 49,
+      "status": 202,
+      "ms": 590.6,
+      "error": null
+    }
+  ],
+  "measured_at": "20261016T173906Z"
+}

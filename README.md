@@ -13,12 +13,11 @@ out across SQS-driven Lambda workers with independently derived shard seeds,
 aggregates to a price with a 95% confidence interval, and can be **replayed**
 from its stored seed to recompute the same float64 result.
 
-Status (2026-10-15): code, tests and Terraform are complete and deployed to a
+Status (2026-10-16): code, tests and Terraform are complete and deployed to a
 dev stack in `us-east-1`, with reserved concurrency in place (worker 10, api 5)
-and `terraform plan` showing no drift. The 1M-path job, replay and benchmarks
-were measured there on 2026-10-14, while the reservations were temporarily off
-(see [Known constraints](#known-constraints)); the fail-closed and DLQ alarm
-tests passed.
+and `terraform plan` showing no drift. The 1M-path job, replay, latency and
+wall-clock benchmarks were re-measured there on 2026-10-16 with the reservations
+on; the fail-closed and DLQ alarm tests passed.
 
 ## Contents
 
@@ -402,8 +401,8 @@ nothing stubbed. Raw JSON lands in `bench/`.
 
 | Target | Value | Result |
 |---|---|---|
-| Submit latency, warm, 50 submissions | < 800 ms p95 | **619.8 ms p95**, 325.1 ms p50, 739.6 ms max; first request 561.7 ms (2026-10-14, client in a us-east cloud container) |
-| 1M paths submit → `COMPLETE`, 5 runs | < 60 s | **1.07 s median**, 1.4 s max; all 5 `COMPLETE`, all within 3 SE of Black-Scholes (worst z = −2.07) |
+| Submit latency, warm, 50 submissions | < 800 ms p95 | **623.6 ms p95**, 353.2 ms p50, 729.3 ms max; first request 699.3 ms. 48 of 50 accepted: Qrypt answered one submit with a 503 and timed out on another, and both were rejected fail-closed with `entropy_unavailable` and their cause (2026-10-16, reservations on, client in a us-east cloud container; `bench/results-latency-20261016T173906Z.json`). The 2026-10-14 run without reservations: 619.8 ms p95, 50 of 50 accepted |
+| 1M paths submit → `COMPLETE`, 5 runs | < 60 s | **0.58 s median**, 1.12 s max; all 5 `COMPLETE`, all within 3 SE of Black-Scholes (worst z = 1.39) (2026-10-16, reservations on; `bench/results-wallclock-20261016T174021Z.json`). The 2026-10-14 run without reservations: 1.07 s median |
 | `terraform apply` from empty | < 10 min | **85 s** for 39 resources, then a second plan with no drift; `terraform destroy` removed all 39 in 123 s with nothing left behind (2026-10-15, a throwaway stack in the same account; `bench/rebuild-2026-10-15.md`) |
 | Steady-state cost at 100 jobs/day | $0 | **≈ 13,000 GB-s/month** of 400,000 free, from measured billed durations (2026-10-15, `bench/results-gbs-*.json`); other services per the arithmetic above |
 
@@ -418,6 +417,7 @@ conflict is recorded here.
 | IaC scanner | Checkov or tfsec | Checkov; tfsec is deprecated into Trivy |
 | API auth | `AWS_IAM` or bearer key | bearer key, described as an application-layer key check on a public endpoint that still invokes and bills |
 | Health endpoint | checks DynamoDB and SSM reachability | `DescribeTable` on both tables plus configuration and last-success times. It never decrypts an SSM parameter (that would spend KMS requests on monitoring), so SSM reachability is reported as the last successful key load in that container |
+| Local Qrypt token | store `QRYPT_API_KEY` in a local `.env` | not in `.env` or `.env.example`. The token lives only in SSM, nothing local calls Qrypt, and tests use the mock, so a local copy would only be one more place for it to leak |
 | Mock Qrypt client | mock so tests run without a token | exists only in `tests/`; no environment variable can switch deployed code to it |
 | Replay claim | bit-identical | claimed only when the float64 hex test passes; otherwise the system reports `different` and shows the values |
 | Correctness test | one test within 3 SE | two tests: fixed-seed deterministic, and fresh-seed statistical with its ~0.27% expected failure rate stated |
@@ -438,7 +438,8 @@ Other constraints:
   on 2026-10-15, the dev stack ran with no reservations (`-1`), a temporary
   exception the candidate approved. The deployed checks and benchmarks in
   `bench/deployed-checks-2026-10-14.md` were measured in that state. The
-  reservations were re-applied on 2026-10-15 and a second plan showed no drift.
+  reservations were re-applied on 2026-10-15 and a second plan showed no drift,
+  and the latency and wall-clock benchmarks were re-run with them on 2026-10-16.
 - **Qrypt provides no signed receipt.** Provenance proves the seed matches a
   stored block hash; it cannot prove Qrypt produced the block. We describe it as
   externally attestable seed provenance, not "true randomness" or guaranteed
@@ -464,6 +465,8 @@ Other constraints:
 - The alarm email was not checked from here (only the alarm states).
 - It prices one product: a European call under Black-Scholes GBM. No portfolio
   VaR, no other payoffs, no variance reduction.
+- It does not show per-job cost (GB-seconds, request count) in the job result;
+  that stretch is not built. Monthly cost is in the arithmetic above.
 - It does not queue jobs when Qrypt is down (`PENDING_ENTROPY` is a stretch not
   built); such jobs are rejected.
 - It does not prove that Qrypt produced a block (no vendor receipt exists).
