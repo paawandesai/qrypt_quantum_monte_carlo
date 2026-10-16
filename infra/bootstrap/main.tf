@@ -4,6 +4,8 @@ locals {
   acct   = data.aws_caller_identity.current.account_id
   region = var.region
   p      = var.name_prefix
+  # The only roles CI may create, edit or pass: one per function, per environment.
+  function_roles = [for f in ["api", "worker", "reconciler"] : "arn:aws:iam::${local.acct}:role/${local.p}*-${f}"]
 }
 
 resource "aws_iam_openid_connect_provider" "gitlab" {
@@ -41,7 +43,7 @@ resource "aws_iam_role" "ci" {
 # (qmc-*) are used instead of "*"; the only account-wide grants are two
 # read-only lookups that AWS cannot scope (LogsDescribe, EventSourceMappingGetAfterDelete).
 data "aws_iam_policy_document" "deploy" {
-  #checkov:skip=CKV_AWS_356:Only lambda:GetEventSourceMapping uses Resource "*": Lambda authorizes lookups of a deleted mapping against "*", so destroy cannot finish otherwise. Read-only; logs:DescribeLogGroups is a list call checkov already treats as unrestrictable.
+  #checkov:skip=CKV_AWS_356:Two read-only grants use Resource "*": lambda:GetEventSourceMapping (Lambda authorizes lookups of a deleted mapping against "*", so destroy cannot finish otherwise) and logs:DescribeLogGroups (a list call that takes no log-group ARN).
   statement {
     sid = "Lambda"
     actions = [
@@ -83,12 +85,12 @@ data "aws_iam_policy_document" "deploy" {
       "iam:ListAttachedRolePolicies", "iam:PutRolePolicy", "iam:GetRolePolicy", "iam:DeleteRolePolicy",
       "iam:ListInstanceProfilesForRole", "iam:UpdateAssumeRolePolicy",
     ]
-    resources = ["arn:aws:iam::${local.acct}:role/${local.p}*"]
+    resources = local.function_roles
   }
   statement {
     sid       = "PassRolesToLambdaOnly"
     actions   = ["iam:PassRole"]
-    resources = ["arn:aws:iam::${local.acct}:role/${local.p}*"]
+    resources = local.function_roles
     condition {
       test     = "StringEquals"
       variable = "iam:PassedToService"
@@ -141,8 +143,26 @@ data "aws_iam_policy_document" "deploy" {
       "s3:CreateBucket",
       "s3:DeleteBucket",
       "s3:ListBucket",
-      "s3:GetBucket*",
-      "s3:PutBucket*",
+      # Explicit bucket actions (no Get*/Put* wildcards): the reads the AWS
+      # provider makes when refreshing a bucket, and only the two bucket writes
+      # this stack needs. No PutBucketPolicy or PutBucketAcl, so CI cannot make a
+      # bucket public.
+      "s3:GetBucketAcl",
+      "s3:GetBucketCORS",
+      "s3:GetBucketLocation",
+      "s3:GetBucketLogging",
+      "s3:GetBucketNotification",
+      "s3:GetBucketObjectLockConfiguration",
+      "s3:GetBucketOwnershipControls",
+      "s3:GetBucketPolicy",
+      "s3:GetBucketPolicyStatus",
+      "s3:GetBucketPublicAccessBlock",
+      "s3:GetBucketRequestPayment",
+      "s3:GetBucketTagging",
+      "s3:GetBucketVersioning",
+      "s3:GetBucketWebsite",
+      "s3:PutBucketPublicAccessBlock",
+      "s3:PutBucketTagging",
       "s3:DeleteBucketPolicy",
       "s3:GetAccelerateConfiguration",
       "s3:GetEncryptionConfiguration",
@@ -197,6 +217,27 @@ data "aws_iam_policy_document" "deploy" {
     ]
     resources = ["arn:aws:budgets::${local.acct}:budget/${local.p}*"]
   }
+}
+
+# The deploy policy may create and edit roles only under the three function role
+# names, and the CI role sits outside them; this explicit deny also stops it from
+# editing its own permissions or trust policy, whatever the allows above say.
+resource "aws_iam_role_policy" "deny_self_edit" {
+  name = "deny-self-edit"
+  role = aws_iam_role.ci.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "NoSelfEdit"
+      Effect = "Deny"
+      Action = [
+        "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy",
+        "iam:UpdateAssumeRolePolicy", "iam:PutRolePermissionsBoundary", "iam:DeleteRolePermissionsBoundary",
+        "iam:UpdateRole", "iam:DeleteRole", "iam:TagRole", "iam:UntagRole",
+      ]
+      Resource = aws_iam_role.ci.arn
+    }]
+  })
 }
 
 resource "aws_iam_role_policy" "deploy" {

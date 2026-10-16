@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import http.client
 import json
 import re
 import socket
@@ -58,6 +59,8 @@ CAUSE_MESSAGES = {
     "qrypt_timeout": "Qrypt did not respond before the timeout.",
     "qrypt_unreachable": "Qrypt could not be reached (network error).",
     "qrypt_bad_response": "Qrypt returned a response that is not a valid entropy block.",
+    "qrypt_key_invalid": "The stored Qrypt token is not a valid HTTP header value (check SSM for stray characters).",
+    "qrypt_redirected": "Qrypt answered with a redirect; it is refused so the token is never sent to another host.",
     "qrypt_key_unavailable": "The Qrypt token could not be loaded from SSM.",
     "qrypt_endpoint_not_allowed": "The configured entropy URL is not an https URL on a qrypt.com host.",
 }
@@ -96,6 +99,21 @@ def endpoint_host(url: str) -> str:
     return host
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse redirects: urllib would otherwise resend the Authorization header to
+    whatever host (or plain-http URL) a 3xx names, bypassing the host allow-list."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise QryptError("qrypt_redirected", code)
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def _open(req: urllib.request.Request, timeout: float):
+    return _OPENER.open(req, timeout=timeout)
+
+
 class EntropySource(Protocol):
     def fetch_block(self) -> EntropyBlock: ...
 
@@ -128,7 +146,7 @@ class QryptClient:
             method="GET",
         )
         try:
-            with urllib.request.urlopen(req, timeout=self._timeout_s) as resp:  # noqa: S310
+            with _open(req, self._timeout_s) as resp:
                 raw = resp.read(256 * 1024)
                 headers = {k.lower(): v for k, v in resp.headers.items()}
         except urllib.error.HTTPError as exc:
@@ -141,6 +159,10 @@ class QryptClient:
             raise QryptError("qrypt_unreachable") from None
         except OSError:
             raise QryptError("qrypt_unreachable") from None
+        except http.client.HTTPException:  # IncompleteRead, BadStatusLine, ...
+            raise QryptError("qrypt_bad_response") from None
+        except ValueError:  # http.client rejects a token holding a newline or control character
+            raise QryptError("qrypt_key_invalid") from None
 
         return replace(parse_response(raw, headers), endpoint_host=host)
 

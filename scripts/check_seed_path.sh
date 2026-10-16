@@ -5,7 +5,11 @@
 # The mock Qrypt client lives in tests/ and is never packaged.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-pattern='os\.urandom|secrets\.token|random\.seed|time\.time|uuid4|uuid1|random\.random|default_rng\(\)|SeedSequence\(\)'
+# Any import of random/secrets/uuid, any bare random./secrets. call (np.random.* and
+# self.secrets.* are preceded by a dot and stay allowed), and the usual clock and
+# OS entropy calls. A seeded default_rng(x) is not listed: sim.py derives every
+# generator from the Qrypt master seed via SeedSequence, which tests pin.
+pattern='os\.urandom|getrandbits|time\.time|uuid[1-5]?\(|default_rng\(\)|SeedSequence\(\)|^[[:space:]]*(import|from)[[:space:]]+(random|secrets|uuid)\b|(^|[^.[:alnum:]_])(random|secrets)\.'
 if grep -rnE "$pattern" src/; then
   echo "check_seed_path: forbidden local entropy/clock source found in src/" >&2
   exit 1

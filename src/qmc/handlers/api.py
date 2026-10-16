@@ -64,20 +64,43 @@ def _json(status: int, body, headers: dict | None = None) -> dict:
     }
 
 
-class SecretCache:
-    """Loads SSM SecureStrings once per container; counts as one KMS decrypt each."""
+def _head(method: str, resp: dict) -> dict:
+    """HEAD gets GET's status and headers without the body (link checkers use it)."""
+    return {**resp, "body": ""} if method == "HEAD" else resp
 
-    def __init__(self, ssm_client_factory):
+
+class SecretCache:
+    """Loads SSM SecureStrings, each one KMS decrypt, and keeps them for ttl_s.
+
+    The TTL bounds how long a rotated key keeps working in a warm container
+    (and how long a new one is refused) while keeping KMS decrypts far under the
+    free 20,000/month: at most 2 per container per hour. Surrounding whitespace,
+    such as the newline an editor or `print()` leaves in the file the parameter
+    was created from, is stripped; it is never part of a key or token.
+    """
+
+    def __init__(self, ssm_client_factory, ttl_s: float = 3600.0, clock=time.monotonic):
         self._factory = ssm_client_factory
-        self._values: dict[str, str] = {}
+        self._ttl_s = ttl_s
+        self._clock = clock
+        self._values: dict[str, tuple[str, float]] = {}
         self.loaded_at: dict[str, str] = {}
 
     def get(self, name: str) -> str:
-        if name not in self._values:
+        cached = self._values.get(name)
+        if cached is None or self._clock() - cached[1] >= self._ttl_s:
             resp = self._factory().get_parameter(Name=name, WithDecryption=True)
-            self._values[name] = resp["Parameter"]["Value"]
+            self._values[name] = (resp["Parameter"]["Value"].strip(), self._clock())
             self.loaded_at[name] = ids.iso(ids.now())
-        return self._values[name]
+        return self._values[name][0]
+
+    def reachable(self, name: str) -> bool:
+        """SSM reachability without a decrypt: metadata only, so no KMS request."""
+        try:
+            self._factory().get_parameter(Name=name, WithDecryption=False)
+            return True
+        except Exception:
+            return False
 
 
 class App:
@@ -93,7 +116,9 @@ class App:
         self.env = dict(os.environ if env is None else env)
         self.limits = Limits.from_env(self.env)
         self._store = store
-        self.secrets = secrets or SecretCache(lambda: boto3.client("ssm"))
+        self.secrets = secrets or SecretCache(
+            lambda: boto3.client("ssm"), ttl_s=float(self.env.get("SECRET_TTL_S", "3600"))
+        )
         self._entropy = entropy
         self.last_success: dict[str, str | None] = {"qrypt_fetch": None, "job_created": None}
 
@@ -118,6 +143,10 @@ class App:
     @property
     def job_deadline_s(self) -> int:
         return int(self.env.get("JOB_DEADLINE_S", str(DEADLINE_S)))
+
+    @property
+    def replay_limit_per_day(self) -> int:
+        return int(self.env.get("REPLAY_PER_DAY", "100"))
 
     @property
     def entropy_ceiling(self) -> int:
@@ -176,10 +205,10 @@ class App:
 
     def route(self, method: str, path: str, event: dict) -> dict:
         path = path.rstrip("/") or "/"
-        if method == "GET" and path in ("/", "/index.html"):
-            return self.console(event)
-        if method == "GET" and path.startswith("/static/"):
-            return self.static(path)
+        if method in ("GET", "HEAD") and path in ("/", "/index.html"):
+            return _head(method, self.console(event))
+        if method in ("GET", "HEAD") and path.startswith("/static/"):
+            return _head(method, self.static(path))
         self.authorize(event)
         if path == "/health" and method == "GET":
             return self.health()
@@ -230,21 +259,23 @@ class App:
 
     def health(self) -> dict:
         tables = self.store.describe_tables()
-        ok = all(v == "ACTIVE" for v in tables.values())
+        # SSM reachability: parameter metadata only (WithDecryption=false), so
+        # health never spends a KMS request or touches a secret value.
+        ssm_ok = self.secrets.reachable(self.env.get("API_KEY_PARAM", ""))
+        ok = all(v == "ACTIVE" for v in tables.values()) and ssm_ok
         return _json(
             200 if ok else 503,
             {
                 "status": "ok" if ok else "degraded",
                 "environment": self.env.get("ENVIRONMENT"),
                 "tables": tables,
+                "ssm": "reachable" if ssm_ok else "unreachable",
                 "config": {
                     "qrypt_key_param_configured": bool(self.env.get("QRYPT_KEY_PARAM")),
                     "api_key_param_configured": bool(self.env.get("API_KEY_PARAM")),
                     "queue_configured": bool(self.env.get("SHARD_QUEUE_URL")),
                 },
                 "last_success": {
-                    # SSM reachability is reported as the last successful key load in
-                    # this container; health never decrypts anything itself.
                     "api_key_loaded_at": self.secrets.loaded_at.get(self.env.get("API_KEY_PARAM", "")),
                     "qrypt_key_loaded_at": self.secrets.loaded_at.get(self.env.get("QRYPT_KEY_PARAM", "")),
                     "qrypt_fetch_at": self.last_success["qrypt_fetch"],
@@ -409,6 +440,18 @@ class App:
                 fields=mismatch,
                 recorded=original.get("runtime_expected"),
                 current=expected_fingerprint(),
+            )
+        # Replay spends no entropy, so the Qrypt limits do not bound it; a daily
+        # cap does, so a key holder cannot loop replays of a large job.
+        today = ids.now()
+        if not self.store.take_rate_token(
+            f"replay-{today:%Y-%m-%d}", self.replay_limit_per_day, ids.epoch_s(ids.plus(today, 2 * 86400))
+        ):
+            raise HttpError(
+                429,
+                "replay_limit_reached",
+                f"at most {self.replay_limit_per_day} replays per UTC day; try again tomorrow",
+                job_created=False,
             )
         params = params_from_record(original)
         created = ids.now()

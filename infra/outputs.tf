@@ -11,11 +11,15 @@ output "jobs_table" {
 output "shard_queue_url" {
   description = "SQS queue that fans shards out to workers."
   value       = module.workers.shard_queue_url
+  # Queue URLs contain the AWS account id; sensitive keeps it out of apply
+  # output and screen recordings (`terraform output -raw` still prints it).
+  sensitive = true
 }
 
 output "dlq_url" {
   description = "Dead-letter queue for shards that failed max_receive_count times. Never consumed, so its depth alarm fires."
   value       = module.workers.dlq_url
+  sensitive   = true
 }
 
 output "alerts_topic" {

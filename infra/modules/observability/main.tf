@@ -49,11 +49,19 @@ locals {
   dims = { Environment = var.environment }
   alarms = {
     worker-errors = {
-      description = "A worker invocation failed (a shard will be retried, then sent to the DLQ)."
+      # The handler catches a shard's exception to report a partial batch failure,
+      # so Lambda's Errors only counts crashes and timeouts; WorkerErrors (EMF)
+      # counts every failed attempt. The alarm watches their sum.
+      description = "A worker attempt failed (a shard will be retried, then sent to the DLQ), or the worker crashed or timed out."
       namespace   = "AWS/Lambda"
       metric      = "Errors"
       statistic   = "Sum"
       dimensions  = { FunctionName = var.worker_function_name }
+      extra = {
+        namespace  = "QryptMC"
+        metric     = "WorkerErrors"
+        dimensions = merge(local.dims, { Function = "worker" })
+      }
     }
     dlq-depth = {
       description = "A shard exhausted its retries and is in the dead-letter queue; its job is PARTIAL."
@@ -61,13 +69,21 @@ locals {
       metric      = "ApproximateNumberOfMessagesVisible"
       statistic   = "Maximum"
       dimensions  = { QueueName = var.dlq_name }
+      extra       = null
     }
     api-errors = {
-      description = "The API function errored (unhandled exception or timeout)."
+      # The handler turns any unexpected exception into a 500 response, which
+      # Lambda's Errors never counts; the Function URL's Url5xxCount does.
+      description = "The API returned a 5xx, or the function crashed or timed out."
       namespace   = "AWS/Lambda"
       metric      = "Errors"
       statistic   = "Sum"
       dimensions  = { FunctionName = var.api_function_name }
+      extra = {
+        namespace  = "AWS/Lambda"
+        metric     = "Url5xxCount"
+        dimensions = { FunctionName = var.api_function_name }
+      }
     }
     qrypt-failures = {
       description = "Qrypt entropy requests failed; affected jobs were rejected (fail closed)."
@@ -75,6 +91,7 @@ locals {
       metric      = "QryptFailures"
       statistic   = "Sum"
       dimensions  = merge(local.dims, { Function = "api" })
+      extra       = null
     }
     shard-failures = {
       description = "A shard failed on its last allowed attempt."
@@ -82,6 +99,7 @@ locals {
       metric      = "ShardFailures"
       statistic   = "Sum"
       dimensions  = merge(local.dims, { Function = "worker" })
+      extra       = null
     }
   }
 }
@@ -89,19 +107,49 @@ locals {
 resource "aws_cloudwatch_metric_alarm" "this" {
   for_each = local.alarms
 
-  alarm_name          = "${var.name}-${each.key}"
-  alarm_description   = each.value.description
-  namespace           = each.value.namespace
-  metric_name         = each.value.metric
-  statistic           = each.value.statistic
-  dimensions          = each.value.dimensions
-  period              = 60
+  alarm_name        = "${var.name}-${each.key}"
+  alarm_description = each.value.description
+  # One metric: a plain alarm. Two metrics: a math alarm on their sum, with
+  # missing data as 0 so either one alone can trip it.
+  namespace           = each.value.extra == null ? each.value.namespace : null
+  metric_name         = each.value.extra == null ? each.value.metric : null
+  statistic           = each.value.extra == null ? each.value.statistic : null
+  dimensions          = each.value.extra == null ? each.value.dimensions : null
+  period              = each.value.extra == null ? 60 : null
   evaluation_periods  = 1
   threshold           = 0
   comparison_operator = "GreaterThanThreshold"
   treat_missing_data  = "notBreaching"
   alarm_actions       = [aws_sns_topic.alerts.arn]
   ok_actions          = [aws_sns_topic.alerts.arn]
+
+  dynamic "metric_query" {
+    for_each = each.value.extra == null ? [] : [
+      { id = "m1", namespace = each.value.namespace, metric = each.value.metric, dimensions = each.value.dimensions },
+      { id = "m2", namespace = each.value.extra.namespace, metric = each.value.extra.metric, dimensions = each.value.extra.dimensions },
+    ]
+    content {
+      id          = metric_query.value.id
+      return_data = false
+      metric {
+        namespace   = metric_query.value.namespace
+        metric_name = metric_query.value.metric
+        dimensions  = metric_query.value.dimensions
+        stat        = "Sum"
+        period      = 60
+      }
+    }
+  }
+
+  dynamic "metric_query" {
+    for_each = each.value.extra == null ? [] : [1]
+    content {
+      id          = "total"
+      expression  = "FILL(m1, 0) + FILL(m2, 0)"
+      label       = "${each.value.metric} + ${each.value.extra.metric}"
+      return_data = true
+    }
+  }
 }
 
 resource "aws_cloudwatch_dashboard" "main" {

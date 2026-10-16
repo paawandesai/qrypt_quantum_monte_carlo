@@ -121,16 +121,20 @@ def test_oversized_body_rejected_before_parsing(aws):
     assert status == 413
 
 
-def test_rate_limit_returns_429_with_retry_after(aws):
+def test_rate_limit_returns_429_with_retry_after(aws, monkeypatch):
+    from datetime import UTC, datetime
+
+    from qmc import ids
+
+    fixed = datetime(2026, 10, 16, 12, 0, 3, tzinfo=UTC)  # 3 s into a window
+    monkeypatch.setattr(ids, "now", lambda: fixed)
     mock = MockQrypt()
     app = make_app(entropy=mock, env_extra={"QRYPT_RATE_PER_10S": "2"})
-    codes = [call(app, "POST", "/jobs", body=dict(STD, paths=1000, shards=1))[0] for _ in range(3)]
-    # at most 2 per 10 s window; a window boundary may let a third through
-    if codes[2] == 429:
-        status, body, headers = call(app, "POST", "/jobs", body=dict(STD, paths=1000, shards=1))
-        assert status == 429 and int(headers["Retry-After"]) >= 1 and body["job_created"] is False
-    assert codes[:2] == [202, 202]
-    assert mock.calls <= 3
+    codes = [call(app, "POST", "/jobs", body=dict(STD, paths=1000, shards=1))[0] for _ in range(2)]
+    status, body, headers = call(app, "POST", "/jobs", body=dict(STD, paths=1000, shards=1))
+    assert codes == [202, 202]
+    assert status == 429 and int(headers["Retry-After"]) == 7 and body["job_created"] is False
+    assert mock.calls == 2  # the refused submit never reached Qrypt
 
 
 def test_entropy_ceiling_blocks_submit(aws):
@@ -154,6 +158,46 @@ def test_health_never_decrypts_or_calls_qrypt(aws):
     assert mock.calls == 0
     # the only secret read is the API key for auth; the Qrypt key is never touched
     assert TEST_ENV["QRYPT_KEY_PARAM"] not in secrets.loaded_at
+    # SSM reachability is checked with a metadata-only call, never a decrypt
+    assert body["ssm"] == "reachable" and secrets.reachable_calls == 1
+
+
+def test_health_degraded_when_ssm_unreachable(aws):
+    secrets = FakeSecrets()
+    secrets.reachable = lambda name: False
+    status, body, _ = call(make_app(secrets=secrets), "GET", "/health")
+    assert status == 503 and body["status"] == "degraded" and body["ssm"] == "unreachable"
+
+
+def test_secret_cache_strips_and_expires():
+    from qmc.handlers.api import SecretCache
+
+    values = iter(["key-one\n", "key-two\n", "metadata-only"])
+    calls = []
+
+    class Ssm:
+        def get_parameter(self, Name, WithDecryption):
+            calls.append(WithDecryption)
+            return {"Parameter": {"Value": next(values)}}
+
+    now = [0.0]
+    cache = SecretCache(lambda: Ssm(), ttl_s=3600, clock=lambda: now[0])
+    assert cache.get("p") == "key-one"  # trailing newline from a file never part of a key
+    now[0] = 3599
+    assert cache.get("p") == "key-one" and calls == [True]
+    now[0] = 3600  # a rotated key is picked up within the TTL
+    assert cache.get("p") == "key-two" and calls == [True, True]
+    assert cache.reachable("p") and calls[-1] is False
+
+
+def test_head_on_console_is_200_without_body(aws):
+    resp = make_app().handle(fn_url_event("HEAD", "/"), CTX)
+    assert resp["statusCode"] == 200 and resp["body"] == ""
+
+
+def test_huge_number_is_400_not_500(aws):
+    status, body, _ = call(make_app(), "POST", "/jobs", body=dict(STD, S0=10**400))
+    assert status == 400 and any("S0 must be finite" in p for p in body["problems"])
 
 
 def test_system_reports_limits_and_dlq(aws):
