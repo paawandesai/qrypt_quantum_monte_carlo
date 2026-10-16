@@ -21,7 +21,9 @@ Status (2026-10-16): code, tests and Terraform are complete and deployed to a
 dev stack in `us-east-1`, with reserved concurrency in place (worker 10, api 5)
 and `terraform plan` showing no drift. The 1M-path job, replay, latency and
 wall-clock benchmarks were re-measured there on 2026-10-16 with the reservations
-on; the fail-closed and DLQ alarm tests passed.
+on; the fail-closed test passed, and after the last code change (main 7978c46)
+a fresh job, its replay and a fault-injection run were checked live, with the
+alarm emails received (`bench/deployed-checks-2026-10-16-mr9.md`).
 
 ## Contents
 
@@ -296,9 +298,10 @@ CI gate 80%). Nothing is verified by a model's say-so.
 Deployed checks (run after `apply`; results committed under `bench/`): a
 1M-path job within 3 SE, a replay with verdict `bit-identical`,
 `scripts/deployed_failclosed_test.py` (real network failure → rejection, no job
-created), and a fault-injected shard tripping the DLQ alarm. The alarm email
-subscription was confirmed on 2026-10-16; no alarm email has been recorded yet
-(see [What this system does not do](#what-this-system-does-not-do)).
+created), and a fault-injected shard tripping the worker-errors, shard-failures
+and DLQ alarms, whose emails arrived (2026-10-16 after MR !9: `worker-errors`
+in `ALARM` 71 s after submit, job `PARTIAL` at ~109 s, DLQ at ~179 s,
+`dlq-depth` in `ALARM` at 351 s; `bench/deployed-checks-2026-10-16-mr9.md`).
 
 Run on 2026-10-14 (details and job ids in `bench/deployed-checks-2026-10-14.md`):
 the 1M-path job gave 10.453436 (SE 0.014719, z = +0.19 against 10.450584), and
@@ -309,7 +312,9 @@ float64 hex of estimate, SE and CI bounds. The fail-closed test passed (504
 Cloudflare front blocks urllib's default User-Agent; fixed in bb71747. That run
 used the earlier 3-receive DLQ setting; the current 5-receive path was rehearsed
 on 2026-10-15 (`PARTIAL` at 107 s, DLQ at 162 s), and a 1M-path job and its
-bit-identical replay were re-run on 2026-10-16 (`bench/deployed-checks-2026-10-16.md`).
+bit-identical replay were re-run on 2026-10-16 (`bench/deployed-checks-2026-10-16.md`),
+then again after MR !9 together with a fault-injection run whose alarm emails
+were received (`bench/deployed-checks-2026-10-16-mr9.md`).
 
 ### Is replay really bit-identical?
 
@@ -571,7 +576,6 @@ Other constraints:
 
 ## What this system does not do
 
-- No alarm email has been recorded yet: the email subscription was only confirmed on 2026-10-16, after the alarm rehearsals (which checked alarm states).
 - It prices one product: a European call under Black-Scholes GBM. No portfolio
   VaR, no other payoffs, no variance reduction.
 - It does not show per-job cost (GB-seconds, request count) in the job result;
