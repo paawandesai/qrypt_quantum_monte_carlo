@@ -20,6 +20,7 @@ UNITS = {
     "PathsSimulated": "Count",
     "EntropyKiBConsumed": "Kilobytes",
     "ShardFailures": "Count",
+    "WorkerErrors": "Count",
     "QryptFailures": "Count",
 }
 

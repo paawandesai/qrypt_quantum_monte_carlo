@@ -1,9 +1,11 @@
 """Qrypt client: every failure maps to a named cause and raises; nothing falls back."""
 
 import base64
+import http.client
 import io
 import json
 import urllib.error
+import urllib.request
 
 import pytest
 
@@ -44,7 +46,7 @@ def client(monkeypatch, outcome, token="tok"):
             raise outcome
         return outcome
 
-    monkeypatch.setattr(qrypt.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(qrypt, "_open", fake_urlopen)
     return QryptClient(lambda: token, url=URL, timeout_s=2), seen
 
 
@@ -95,6 +97,8 @@ def test_http_errors_raise_named_cause(monkeypatch, status, cause):
         (urllib.error.URLError(TimeoutError()), "qrypt_timeout"),
         (urllib.error.URLError("dns failure"), "qrypt_unreachable"),
         (ConnectionResetError(), "qrypt_unreachable"),
+        (http.client.IncompleteRead(b"x"), "qrypt_bad_response"),
+        (http.client.BadStatusLine("junk"), "qrypt_bad_response"),
     ],
 )
 def test_network_failures_raise(monkeypatch, exc, cause):
@@ -102,6 +106,21 @@ def test_network_failures_raise(monkeypatch, exc, cause):
     with pytest.raises(QryptError) as ei:
         c.fetch_block()
     assert ei.value.cause == cause
+
+
+def test_token_with_newline_is_a_named_cause_not_a_crash():
+    """The real opener rejects a header value holding a newline before any network I/O."""
+    c = QryptClient(lambda: "tok\n", url=URL, timeout_s=0.01)
+    with pytest.raises(QryptError) as ei:
+        c.fetch_block()
+    assert ei.value.cause == "qrypt_key_invalid"
+
+
+def test_redirects_are_refused_so_the_token_never_moves():
+    req = urllib.request.Request(URL, headers={"Authorization": "Bearer tok"})
+    with pytest.raises(QryptError) as ei:
+        qrypt._NoRedirect().redirect_request(req, None, 302, "Found", {}, "http://elsewhere.example/")
+    assert ei.value.cause == "qrypt_redirected" and ei.value.http_status == 302
 
 
 def test_missing_token_fails_closed(monkeypatch):
@@ -161,7 +180,7 @@ def test_non_qrypt_endpoint_fails_closed_before_token_is_read(monkeypatch, url):
     def no_network(*a, **k):
         raise AssertionError("must not connect")
 
-    monkeypatch.setattr(qrypt.urllib.request, "urlopen", no_network)
+    monkeypatch.setattr(qrypt, "_open", no_network)
     token_reads = []
     c = QryptClient(lambda: token_reads.append(1) or "tok", url=url)
     with pytest.raises(QryptError) as ei:

@@ -16,7 +16,7 @@ TEST_ENV = {
     "QRYPT_KEY_PARAM": "/qmc-test/qrypt-api-key",
     "ENVIRONMENT": "test",
     "FUNCTION_ROLE": "test",
-    "MAX_RECEIVE_COUNT": "3",
+    "MAX_RECEIVE_COUNT": "5",
 }
 
 TEST_BEARER = "unit-test-bearer-value"
@@ -34,6 +34,10 @@ class FakeSecrets:
             raise KeyError(name)
         self.loaded_at[name] = "2026-01-01T00:00:00.000000Z"
         return self.values[name]
+
+    def reachable(self, name):
+        self.reachable_calls = getattr(self, "reachable_calls", 0) + 1
+        return name in self.values
 
 
 def create_resources() -> dict:

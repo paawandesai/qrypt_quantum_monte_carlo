@@ -92,6 +92,16 @@ def test_replay_is_bit_identical_and_uses_no_entropy(env):
     assert len(env["store"].get_shards(rep["job_id"])) == 5
 
 
+def test_replays_are_capped_per_day(env):
+    app = make_app(env_extra={"REPLAY_PER_DAY": "2"})
+    _, body = submit(app, body=dict(STD, paths=1000, shards=1))
+    run_workers(env)
+    path = f"/jobs/{body['job_id']}/replay"
+    assert [submit(app, body=None, path=path)[0] for _ in range(2)] == [202, 202]
+    status, rep = submit(app, body=None, path=path)
+    assert status == 429 and rep["error"] == "replay_limit_reached" and rep["job_created"] is False
+
+
 def test_replay_refused_on_runtime_mismatch(env):
     app = make_app()
     _, body = submit(app)
@@ -105,7 +115,7 @@ def test_replay_refused_on_runtime_mismatch(env):
     assert status == 409 and rep["error"] == "runtime_mismatch" and rep["fields"] == ["numpy_version"]
 
 
-def test_failing_shard_ends_partial_never_complete(env, monkeypatch):
+def test_failing_shard_ends_partial_never_complete(env, monkeypatch, capsys):
     monkeypatch.setenv("ENABLE_FAULT_INJECTION", "true")
     app = make_app(env_extra={"ENABLE_FAULT_INJECTION": "true"})
     status, body = submit(app, body=dict(STD, fail_shards=[2]))
@@ -114,17 +124,21 @@ def test_failing_shard_ends_partial_never_complete(env, monkeypatch):
     bad = next(r for r in records if json.loads(r["body"])["shard_index"] == 2)
     good = [r for r in records if r is not bad]
     run_workers(env, good)
-    for attempt in (1, 2):
+    for attempt in (1, 2, 3, 4):
         out, _ = run_workers(env, [dict(bad, attributes={"ApproximateReceiveCount": str(attempt)})])
         assert out["batchItemFailures"] == [{"itemIdentifier": bad["messageId"]}]
         assert get(app, body["job_id"])["status"] == "RUNNING"
-    out, _ = run_workers(env, [dict(bad, attributes={"ApproximateReceiveCount": "3"})])
+    out, _ = run_workers(env, [dict(bad, attributes={"ApproximateReceiveCount": "5"})])
     assert out["batchItemFailures"]  # returned as failed -> SQS moves it to the DLQ
     job = get(app, body["job_id"])
     assert job["status"] == "PARTIAL"
     assert job["failed_shard_indexes"] == [2]
     assert job["shard_errors"] == {"2": "InjectedFault"}
     assert "result" not in job
+    # every failed attempt counts for the worker-errors alarm; only the last for shard-failures
+    logs = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.startswith("{")]
+    assert sum(1 for doc in logs if doc.get("WorkerErrors") == 1) == 5
+    assert sum(1 for doc in logs if doc.get("ShardFailures") == 1) == 1
 
 
 def test_fault_flag_ignored_when_injection_disabled(env, monkeypatch):
@@ -225,10 +239,10 @@ def test_failed_shard_is_released_after_backoff_not_full_visibility(env, monkeyp
         return real(**kw)
 
     monkeypatch.setattr(env["store"].sqs, "change_message_visibility", spy)
-    for attempt in (1, 2, 3):
+    for attempt in (1, 2, 3, 4, 5):
         rec = dict(records[0], receiptHandle="h", attributes={"ApproximateReceiveCount": str(attempt)})
         run_workers(env, [rec])
-    assert [c["VisibilityTimeout"] for c in calls] == [10, 20, 30]
+    assert [c["VisibilityTimeout"] for c in calls] == [10, 20, 30, 40, 50]
     assert all(c["QueueUrl"] == env["queue_url"] for c in calls)
     assert get(app, body["job_id"])["status"] == "PARTIAL"
 

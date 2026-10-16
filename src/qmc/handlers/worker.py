@@ -7,9 +7,14 @@ message is returned as failed, which sends it to the dead-letter queue.
 
 A failed message is not left to wait out the queue's full visibility timeout
 (180 s, sized for throttled and in-flight work): the worker shortens it to a
-backoff of RETRY_BACKOFF_S x attempt (10, 20, 30, 40 s by default), so the
-retries, and the move to the DLQ after the last one, take about two minutes
-instead of fifteen. The receive count, and so the DLQ rule, is unchanged.
+backoff of RETRY_BACKOFF_S x attempt (10, 20, 30, 40, 50 s by default with 5
+receives), so the retries, and the move to the DLQ after the last one, take
+about 2.5 minutes instead of fifteen. The receive count, and so the DLQ rule, is
+unchanged.
+
+Every failed attempt emits WorkerErrors. The handler catches the exception to
+report a partial batch failure, so Lambda's own Errors metric never sees it;
+the worker-errors alarm watches both.
 """
 
 from __future__ import annotations
@@ -41,7 +46,7 @@ def _store() -> Store:
 
 
 def max_receives() -> int:
-    return int(os.environ.get("MAX_RECEIVE_COUNT", "3"))
+    return int(os.environ.get("MAX_RECEIVE_COUNT", "5"))
 
 
 def retry_delay_s(receive_count: int) -> int:
@@ -110,6 +115,7 @@ def process(store: Store, msg: dict, receive_count: int) -> None:
     except Exception as exc:
         code = type(exc).__name__
         log.error(event="shard_error", job_id=job_id, shard_index=i, attempt=receive_count, code=code)
+        metrics.emit(WorkerErrors=1)
         if receive_count >= max_receives():
             metrics.emit(ShardFailures=1)
             job = store.mark_shard_failed(job_id, i, code)

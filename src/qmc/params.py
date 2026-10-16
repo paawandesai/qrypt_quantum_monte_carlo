@@ -83,7 +83,11 @@ def _as_float(name: str, value, problems: list[str]) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         problems.append(f"{name} must be a number")
         return None
-    f = float(value)
+    try:
+        f = float(value)
+    except OverflowError:  # an integer too large for a float64
+        problems.append(f"{name} must be finite")
+        return None
     if not math.isfinite(f):
         problems.append(f"{name} must be finite")
         return None

@@ -8,6 +8,13 @@ resource "aws_budgets_budget" "monthly" {
   limit_unit   = "USD"
   time_unit    = "MONTHLY"
 
+  # Count spend before credits and refunds: on a credit-funded account the net
+  # cost stays $0 while credits drain, and the alert would never fire.
+  cost_types {
+    include_credit = false
+    include_refund = false
+  }
+
   notification {
     comparison_operator        = "GREATER_THAN"
     threshold                  = 1
