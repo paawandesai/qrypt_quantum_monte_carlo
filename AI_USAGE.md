@@ -43,7 +43,6 @@ carry a `Co-Authored-By: Claude` trailer.
 | `scripts/verify.py` | test against a moto-backed job bundle; a real deployed bundle verified `bit-identical` on x86_64 | |
 | README cost arithmetic | arithmetic re-checked by hand; Lambda durations measured from REPORT log lines (`scripts/bench.py gbs`, 2026-10-15); Lambda allowances and the AWS Budgets pricing page checked 2026-10-15 | the other services' free-tier figures were not re-checked against current AWS pages |
 | README and this file | read by the assistant against the guardrails | candidate review pending |
-| README one-line description | drafted by the assistant as one of three options; chosen unchanged by the candidate on 2026-10-16; length (119 characters) and claims checked against the README | none |
 | Design plan (Claude Doc, outside the repo) | candidate review | |
 
 The system has no AI feature: prices come from simulation and are checked

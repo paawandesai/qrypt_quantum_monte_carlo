@@ -1,6 +1,6 @@
 # Quantum-seeded Monte Carlo on AWS Lambda
 
-> Serverless Monte Carlo option pricer on AWS, seeded by Qrypt quantum entropy, with bit-identical replay and $0 idle cost.
+> Serverless Quantum Monte Carlo option pricer on AWS, seeded by Qrypt entropy, with bit-identical replay and $0 cost.
 
 **Deployed endpoint:** <https://tiszf5ypkbkclttornac5wabgu0lscrt.lambda-url.us-east-1.on.aws/>
 (web console at [`/#/new`](https://tiszf5ypkbkclttornac5wabgu0lscrt.lambda-url.us-east-1.on.aws/#/new)).
