@@ -73,16 +73,18 @@ locals {
     }
     api-errors = {
       # The handler turns any unexpected exception into a 500 response, which
-      # Lambda's Errors never counts; the Function URL's Url5xxCount does.
-      description = "The API returned a 5xx, or the function crashed or timed out."
+      # Lambda's Errors never counts; ApiErrors (EMF) counts those and API key
+      # load failures. Fail-closed Qrypt 503/504s are expected and have their
+      # own alarm, so Url5xxCount (which counts them too) is not used.
+      description = "The API hit an unexpected error (500) or could not load its key, or the function crashed or timed out."
       namespace   = "AWS/Lambda"
       metric      = "Errors"
       statistic   = "Sum"
       dimensions  = { FunctionName = var.api_function_name }
       extra = {
-        namespace  = "AWS/Lambda"
-        metric     = "Url5xxCount"
-        dimensions = { FunctionName = var.api_function_name }
+        namespace  = "QryptMC"
+        metric     = "ApiErrors"
+        dimensions = merge(local.dims, { Function = "api" })
       }
     }
     qrypt-failures = {
@@ -110,13 +112,18 @@ resource "aws_cloudwatch_metric_alarm" "this" {
   alarm_name        = "${var.name}-${each.key}"
   alarm_description = each.value.description
   # One metric: a plain alarm. Two metrics: a math alarm on their sum, with
-  # missing data as 0 so either one alone can trip it.
+  # missing data as 0 so either one alone can trip it. Any failing minute among
+  # the last 3 trips it, because EMF metrics land after a delay and a 1-of-1
+  # alarm (worse with FILL, which turns the not-yet-arrived minute into 0) could
+  # look past them; it also keeps one ALARM/OK pair per incident rather than one
+  # per retry.
   namespace           = each.value.extra == null ? each.value.namespace : null
   metric_name         = each.value.extra == null ? each.value.metric : null
   statistic           = each.value.extra == null ? each.value.statistic : null
   dimensions          = each.value.extra == null ? each.value.dimensions : null
   period              = each.value.extra == null ? 60 : null
-  evaluation_periods  = 1
+  evaluation_periods  = 3
+  datapoints_to_alarm = 1
   threshold           = 0
   comparison_operator = "GreaterThanThreshold"
   treat_missing_data  = "notBreaching"

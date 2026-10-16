@@ -190,6 +190,36 @@ def test_secret_cache_strips_and_expires():
     assert cache.reachable("p") and calls[-1] is False
 
 
+def test_secret_cache_serves_stale_value_through_an_ssm_blip():
+    from qmc.handlers.api import SecretCache
+
+    up = [True]
+    built = []
+
+    class Ssm:
+        def get_parameter(self, Name, WithDecryption):
+            if not up[0]:
+                raise RuntimeError("ssm down")
+            return {"Parameter": {"Value": "key"}}
+
+    def factory():
+        built.append(1)
+        return Ssm()
+
+    now = [0.0]
+    cache = SecretCache(factory, ttl_s=10, stale_s=100, clock=lambda: now[0])
+    assert cache.get("p") == "key"
+    up[0] = False
+    now[0] = 50  # past the TTL, refresh fails: keep serving the cached key
+    assert cache.get("p") == "key" and not cache.reachable("p")
+    now[0] = 110  # past TTL + stale window: fail closed
+    with pytest.raises(RuntimeError):
+        cache.get("p")
+    with pytest.raises(RuntimeError):
+        SecretCache(factory).get("never-loaded")  # nothing cached: no fallback
+    assert len(built) == 2  # one client per cache, not one per call
+
+
 def test_head_on_console_is_200_without_body(aws):
     resp = make_app().handle(fn_url_event("HEAD", "/"), CTX)
     assert resp["statusCode"] == 200 and resp["body"] == ""
@@ -244,7 +274,9 @@ def test_unhandled_exception_is_500_without_detail(aws, monkeypatch, capsys):
     monkeypatch.setattr(app, "list_jobs", lambda e: 1 / 0)
     status, body, _ = call(app, "GET", "/jobs")
     assert status == 500 and body == {"error": "internal_error", "message": "unexpected server error"}
-    assert "ZeroDivision" not in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "ZeroDivision" not in out
+    assert '"ApiErrors": 1' in out  # counted for the api-errors alarm
 
 
 def test_console_served_without_key_with_noindex_and_csp(aws):

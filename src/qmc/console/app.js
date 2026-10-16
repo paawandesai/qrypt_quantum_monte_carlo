@@ -94,7 +94,10 @@ function viewConnect(message) {
       setKey(input.value.trim());
       input.value = "";
       const res = await api("GET", "/health", undefined, { noRedirect: true });
-      if (res.status === 200) { location.hash = afterConnect; }
+      // A 503 from /health means the key was accepted but a dependency is degraded;
+      // connect anyway so the System view can show what is wrong.
+      const accepted = res.status === 200 || (res.status === 503 && res.data?.error !== "api_key_unavailable");
+      if (accepted) { location.hash = afterConnect; }
       else { setKey(null); out.replaceChildren(errorBox(res)); }
     },
   },

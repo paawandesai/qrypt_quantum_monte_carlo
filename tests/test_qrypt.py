@@ -121,6 +121,10 @@ def test_redirects_are_refused_so_the_token_never_moves():
     with pytest.raises(QryptError) as ei:
         qrypt._NoRedirect().redirect_request(req, None, 302, "Found", {}, "http://elsewhere.example/")
     assert ei.value.cause == "qrypt_redirected" and ei.value.http_status == 302
+    # and the opener fetch_block uses is the one with this handler, not urllib's default
+    handlers = qrypt._OPENER.handlers
+    assert any(isinstance(h, qrypt._NoRedirect) for h in handlers)
+    assert not any(type(h) is urllib.request.HTTPRedirectHandler for h in handlers)
 
 
 def test_missing_token_fails_closed(monkeypatch):

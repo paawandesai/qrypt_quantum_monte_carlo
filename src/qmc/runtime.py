@@ -21,7 +21,7 @@ BUILD_INFO_FILE = Path(__file__).resolve().parent.parent / "build_info.json"
 
 @cache
 def build_info() -> dict:
-    """What the deployed package was built with (written by scripts/build.sh).
+    """What the deployed package was built with (written by scripts/build.py).
 
     Falls back to the local interpreter when running tests from a checkout.
     """
