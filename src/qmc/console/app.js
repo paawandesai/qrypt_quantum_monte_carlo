@@ -166,7 +166,7 @@ async function viewNew() {
     const p = {};
     for (const k of ["S0", "K", "sigma", "T"]) if (!(v[k] > 0)) p[k] = `${k} must be greater than 0`;
     if (!(v.r >= -1 && v.r <= 1)) p.r = "r must be between -1 and 1";
-    if (!Number.isInteger(v.paths) || v.paths < 1) p.paths = "paths must be a whole number ≥ 1";
+    if (!Number.isInteger(v.paths) || v.paths < 2) p.paths = "paths must be a whole number ≥ 2";
     else if (v.paths > lim.max_paths) p.paths = `paths must be ≤ ${lim.max_paths.toLocaleString()} (cost limit)`;
     if (!Number.isInteger(v.shards) || v.shards < 1) p.shards = "shards must be a whole number ≥ 1";
     else if (v.shards > lim.max_shards) p.shards = `shards must be ≤ ${lim.max_shards}`;
@@ -250,7 +250,7 @@ function provenance(job) {
   const rt = job.runtime_expected || {};
   return el("details", { class: "panel" },
     el("summary", {}, el("strong", {}, "Provenance")),
-    el("p", { class: "muted" }, "Externally attestable seed provenance: the master seed is SHA-256 over a domain tag and one 1 KiB Qrypt block; anyone holding the block can confirm the link through its hash."),
+    el("p", { class: "muted" }, "Recorded seed provenance: the master seed is SHA-256 over a domain tag and one 1 KiB Qrypt block, and the job stores that block's SHA-256. The block itself is not kept and Qrypt issues no receipt, so this records what was used; it cannot prove where the block came from."),
     el("dl", { class: "kv" },
       el("dt", {}, "Entropy source"), el("dd", {}, job.entropy_source || "—"),
       el("dt", {}, "Qrypt request id"), el("dd", { class: "mono" }, e.qrypt_request_id || "not provided by Qrypt"),
@@ -260,7 +260,7 @@ function provenance(job) {
       el("dt", {}, "Entropy used"), el("dd", {}, `${e.kib ?? "—"} KiB`),
       el("dt", {}, "Shard seed derivation"), el("dd", { class: "mono" }, e.derivation || "—"),
       el("dt", {}, "Runtime"), el("dd", { class: "mono" }, `numpy ${rt.numpy_version} · ${rt.arch} · ${rt.algo_version}`),
-      el("dt", {}, "Runtime consistent"), el("dd", {}, job.runtime_consistent === undefined ? "—" : job.runtime_consistent ? "yes" : `no (${(job.runtime_mismatch_fields || []).join(", ") || "CPU features differ"})`)),
+      el("dt", {}, "Shard hosts"), el("dd", {}, job.runtime_consistent === undefined ? "—" : job.runtime_consistent ? "identical runtime" : (job.runtime_mismatch_fields || []).length ? `runtime differs: ${job.runtime_mismatch_fields.join(", ")}` : "same runtime, mixed CPU feature sets (does not affect replay)")),
     el("div", { class: "row" }, el("button", { type: "button", class: "secondary", onclick: () => downloadBundle(job.job_id) }, "Download job bundle"),
       el("span", { class: "muted" }, "Recompute offline: python scripts/verify.py bundle.json")));
 }
