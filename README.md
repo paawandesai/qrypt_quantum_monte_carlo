@@ -213,7 +213,9 @@ for the fault-injection applies below, adding `-var enable_fault_injection=true`
 to the plan:
 
 ```bash
-mask() { sed -u -E -e 's/[0-9]{12}/XXXXXXXXXXXX/g' -e "s/${TF_VAR_alarm_email}/you@example.com/g"; }
+# unbuffered sed: -u on GNU/Linux, -l on macOS (BSD sed has no -u)
+mask() { b=-u; sed --version >/dev/null 2>&1 || b=-l
+  sed "$b" -E -e 's/[0-9]{12}/XXXXXXXXXXXX/g' -e "s/${TF_VAR_alarm_email}/you@example.com/g"; }
 terraform -chdir=infra plan -out=demo.tfplan 2>&1 | mask
 terraform -chdir=infra apply demo.tfplan 2>&1 | mask
 ```
@@ -242,7 +244,6 @@ purged; purge it before a second recording or no new notification is sent:
 ```bash
 aws sqs purge-queue --region us-east-1 --queue-url "$(terraform -chdir=infra output -raw dlq_url)"
 ```
-
 
 The bearer key is read from SSM by whoever deployed the stack; it is never
 printed in this README, in Terraform outputs or in logs.
