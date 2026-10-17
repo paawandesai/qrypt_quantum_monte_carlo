@@ -95,6 +95,16 @@ locals {
       dimensions  = merge(local.dims, { Function = "api" })
       extra       = null
     }
+    reconciler-errors = {
+      # The reconciler is what marks timed-out jobs PARTIAL; if it keeps failing
+      # (an IAM regression, a bug), stuck jobs would otherwise go unnoticed.
+      description = "The reconciler crashed or timed out; jobs past their deadline may stay QUEUED or RUNNING."
+      namespace   = "AWS/Lambda"
+      metric      = "Errors"
+      statistic   = "Sum"
+      dimensions  = { FunctionName = var.reconciler_function }
+      extra       = null
+    }
     shard-failures = {
       description = "A shard failed on its last allowed attempt."
       namespace   = "QryptMC"

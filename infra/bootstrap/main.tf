@@ -138,9 +138,16 @@ data "aws_iam_policy_document" "deploy" {
     resources = ["*"]
   }
   statement {
+    sid       = "S3CodeCreate"
+    actions   = ["s3:CreateBucket"]
+    resources = ["arn:aws:s3:::${local.p}*"]
+  }
+  # S3 ARNs carry no account id, so every other bucket and object action is
+  # limited to buckets this account owns (otherwise a qmc-* bucket in another
+  # account would match).
+  statement {
     sid = "S3Code"
     actions = [
-      "s3:CreateBucket",
       "s3:DeleteBucket",
       "s3:ListBucket",
       # Explicit bucket actions (no Get*/Put* wildcards): the reads the AWS
@@ -179,6 +186,11 @@ data "aws_iam_policy_document" "deploy" {
       "s3:ListBucketVersions",
     ]
     resources = ["arn:aws:s3:::${local.p}*", "arn:aws:s3:::${local.p}*/*"]
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceAccount"
+      values   = [local.acct]
+    }
   }
   statement {
     sid = "EventBridge"
