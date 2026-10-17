@@ -7,6 +7,13 @@
 Every API route needs the bearer key. For this deployment the candidate sends it
 to the graders privately with the submission (it is never committed). In your own
 deployment you read it from SSM as shown in the [quick-start](#grader-quick-start).
+To try this deployment with the key you were sent (Python 3.13, from a clone):
+
+```bash
+export QMC_API_URL=https://tiszf5ypkbkclttornac5wabgu0lscrt.lambda-url.us-east-1.on.aws
+read -rs QMC_API_KEY && export QMC_API_KEY    # paste the key; it is not echoed
+python3 scripts/qmc_cli.py submit --paths 1000000 --shards 10 --wait
+```
 The stack stays up through grading, then is destroyed and the key rotated.
 
 **Demo video:** _(link added with the submission)_
@@ -21,9 +28,10 @@ Status (2026-10-16): code, tests and Terraform are complete and deployed to a
 dev stack in `us-east-1`, with reserved concurrency in place (worker 10, api 5)
 and `terraform plan` showing no drift. The 1M-path job, replay, latency and
 wall-clock benchmarks were re-measured there on 2026-10-16 with the reservations
-on; the fail-closed test passed, and after the last code change (main 7978c46)
-a fresh job, its replay and a fault-injection run were checked live, and the
-alarm emails arrived (`bench/deployed-checks-2026-10-16-mr9.md`).
+on; the fail-closed test passed, and after the last change to deployed code
+(main 7978c46; later commits touch only docs and tests) a fresh job, its replay
+and a fault-injection run were checked live, and the `shard-failures` and
+`dlq-depth` alarm emails arrived (`bench/deployed-checks-2026-10-16-mr9.md`).
 
 ## Contents
 
@@ -126,9 +134,13 @@ out of band and are not in either stack.
 
 ## Grader quick-start
 
-Prerequisites: AWS CLI v2 and Terraform ≥ 1.10 authenticated to a sandbox
-account; Python 3.13 (`python3.13`); a Qrypt Entropy token. Everything runs in
-`us-east-1`, so every AWS CLI command below names that region.
+Prerequisites: AWS CLI v2 and Terraform ≥ 1.10; Python 3.13 (`python3.13`); a
+Qrypt Entropy token. Everything runs in `us-east-1`, so every AWS CLI command
+below names that region.
+
+**Step 0, AWS credentials**: configure credentials for a sandbox account
+(`aws configure`, or `aws configure sso`) and check them with
+`aws sts get-caller-identity`; Terraform uses the same credentials.
 
 **Before the first apply** (once per account):
 
@@ -189,12 +201,30 @@ live `dev` state), run `scripts/tf-init.sh`, then export `TF_HTTP_USERNAME=oauth
 and `TF_HTTP_PASSWORD="$GITLAB_TOKEN"` before `apply` and `destroy`, because the
 script sets them only for its own `init`.
 
+**Recording or sharing a screen**: the AWS account id appears in `terraform apply`
+progress lines (queue URLs, SNS and budget ids), in the fault-injection diff (the
+functions' environment), and in alarm emails, whose footer also holds a working
+unsubscribe link, and your alarm email address appears in the SNS and budget
+lines. The queue-URL outputs are marked sensitive. Mask the rest by
+planning to a file and applying that file, each piped through an unbuffered
+`sed` (an interactive `apply` piped through `sed` hides its "Enter a value:"
+prompt), and blur the email's account and footer lines. Use the same pattern
+for the fault-injection applies below, adding `-var enable_fault_injection=true`
+to the plan:
+
+```bash
+mask() { sed -u -E -e 's/[0-9]{12}/XXXXXXXXXXXX/g' -e "s/${TF_VAR_alarm_email}/you@example.com/g"; }
+terraform -chdir=infra plan -out=demo.tfplan 2>&1 | mask
+terraform -chdir=infra apply demo.tfplan 2>&1 | mask
+```
+
+The plan file is gitignored; it holds the account id and the alarm email, so
+delete it afterwards.
+
 To see the DLQ alarm fire with a genuinely failing worker (the demo path),
 turn fault injection on, submit a job that names a failing shard, then turn it
-off again:
-
-If you deployed with the `-1` reservation flags and no `terraform.tfvars`, add
-them to both applies below.
+off again. If you deployed with the `-1` reservation flags and no
+`terraform.tfvars`, add them to both applies:
 
 ```bash
 terraform -chdir=infra apply -var enable_fault_injection=true
@@ -213,21 +243,6 @@ purged; purge it before a second recording or no new notification is sent:
 aws sqs purge-queue --region us-east-1 --queue-url "$(terraform -chdir=infra output -raw dlq_url)"
 ```
 
-**Recording or sharing a screen**: the AWS account id appears in `terraform apply`
-progress lines (queue URLs, SNS and budget ids), in the fault-injection diff (the
-functions' environment), and in alarm emails, whose footer also holds a working
-unsubscribe link. The queue-URL outputs are marked sensitive. Mask the rest by
-planning to a file and applying that file, each piped through an unbuffered
-`sed` (an interactive `apply` piped through `sed` hides its "Enter a value:"
-prompt), and blur the email's account and footer lines:
-
-```bash
-terraform -chdir=infra plan -out=demo.tfplan 2>&1 | sed -u -E 's/[0-9]{12}/XXXXXXXXXXXX/g'
-terraform -chdir=infra apply demo.tfplan 2>&1 | sed -u -E 's/[0-9]{12}/XXXXXXXXXXXX/g'
-```
-
-The plan file is gitignored; it holds the account id and the alarm email, so
-delete it afterwards.
 
 The bearer key is read from SSM by whoever deployed the stack; it is never
 printed in this README, in Terraform outputs or in logs.
