@@ -22,8 +22,8 @@ dev stack in `us-east-1`, with reserved concurrency in place (worker 10, api 5)
 and `terraform plan` showing no drift. The 1M-path job, replay, latency and
 wall-clock benchmarks were re-measured there on 2026-10-16 with the reservations
 on; the fail-closed test passed, and after the last code change (main 7978c46)
-a fresh job, its replay and a fault-injection run were checked live, with the
-alarm emails received (`bench/deployed-checks-2026-10-16-mr9.md`).
+a fresh job, its replay and a fault-injection run were checked live, and the
+alarm emails arrived (`bench/deployed-checks-2026-10-16-mr9.md`).
 
 ## Contents
 
@@ -61,7 +61,8 @@ flowchart LR
   rec --> shards
   api -. "DescribeTable (/health)" .-> shards
   api -. "queue depth (/system)" .-> dlq
-  api & w & rec -- "logs + EMF metrics" --> cw[CloudWatch Logs 14 d<br/>7 custom metrics, 5 alarms, dashboard]
+  api & w -- "logs + EMF metrics" --> cw[CloudWatch Logs 14 d<br/>7 custom metrics, 5 alarms, dashboard]
+  rec -- logs --> cw
   cw -- alarms --> sns[SNS alerts topic] --> mail([email])
   budget[AWS Budget $1/month] --> sns
 ```
@@ -192,6 +193,9 @@ To see the DLQ alarm fire with a genuinely failing worker (the demo path),
 turn fault injection on, submit a job that names a failing shard, then turn it
 off again:
 
+If you deployed with the `-1` reservation flags and no `terraform.tfvars`, add
+them to both applies below.
+
 ```bash
 terraform -chdir=infra apply -var enable_fault_injection=true
 python scripts/qmc_cli.py submit --paths 1000 --shards 2 --fail-shards 0 --wait   # ends PARTIAL
@@ -200,7 +204,7 @@ terraform -chdir=infra apply                 # fault injection back off
 
 The shard is received 5 times before it reaches the DLQ. After each failure the
 worker releases the message after 10, 20, 30, 40 and 50 s, so it lands in the
-DLQ about 2.5 minutes after submit (measured on dev 2026-10-15, one run: job `PARTIAL` at 107 s, DLQ depth 1 at 162 s); CloudWatch can take a few more minutes to
+DLQ about 3 minutes after submit (measured on dev 2026-10-16, one run: job `PARTIAL` at ~109 s, DLQ depth 1 at ~179 s; `bench/deployed-checks-2026-10-16-mr9.md`); CloudWatch can take a few more minutes to
 move the alarm. The `worker-errors` alarm trips on the first failed attempt.
 The DLQ is never consumed, so its alarm stays in `ALARM` until the queue is
 purged; purge it before a second recording or no new notification is sent:
@@ -299,22 +303,25 @@ Deployed checks (run after `apply`; results committed under `bench/`): a
 1M-path job within 3 SE, a replay with verdict `bit-identical`,
 `scripts/deployed_failclosed_test.py` (real network failure → rejection, no job
 created), and a fault-injected shard tripping the worker-errors, shard-failures
-and DLQ alarms, whose emails arrived (2026-10-16 after MR !9: `worker-errors`
+and DLQ alarms (2026-10-16 after MR !9: `worker-errors`
 in `ALARM` 71 s after submit, job `PARTIAL` at ~109 s, DLQ at ~179 s,
-`dlq-depth` in `ALARM` at 351 s; `bench/deployed-checks-2026-10-16-mr9.md`).
+`dlq-depth` in `ALARM` at 351 s). The candidate's inbox showed the `ALARM`
+emails for `shard-failures` and `dlq-depth` and the `OK` emails for
+`worker-errors` and `shard-failures`; the `worker-errors` `ALARM` email was not
+in the part shown (`bench/deployed-checks-2026-10-16-mr9.md`).
 
 Run on 2026-10-14 (details and job ids in `bench/deployed-checks-2026-10-14.md`):
 the 1M-path job gave 10.453436 (SE 0.014719, z = +0.19 against 10.450584), and
 its replay and the offline `verify.py` both came out `bit-identical` on the
 float64 hex of estimate, SE and CI bounds. The fail-closed test passed (504
 `qrypt_timeout`, no job created), and a fault-injected shard ended its job
-`PARTIAL` and tripped the shard-failure and DLQ-depth alarms. The first attempts were all rejected because Qrypt's
+`PARTIAL` and tripped the shard-failure and DLQ-depth alarms (that rehearsal ran
+on 2026-10-15 and is section 7 of the same file). The first attempts were all rejected because Qrypt's
 Cloudflare front blocks urllib's default User-Agent; fixed in bb71747. That run
-used the earlier 3-receive DLQ setting; the current 5-receive path was rehearsed
-on 2026-10-15 (`PARTIAL` at 107 s, DLQ at 162 s), and a 1M-path job and its
+used the earlier 3-receive DLQ setting; the current 5-receive path is recorded
+in `bench/deployed-checks-2026-10-16-mr9.md` (`PARTIAL` at ~109 s, DLQ at ~179 s), and a 1M-path job and its
 bit-identical replay were re-run on 2026-10-16 (`bench/deployed-checks-2026-10-16.md`),
-then again after MR !9 together with a fault-injection run whose alarm emails
-were received (`bench/deployed-checks-2026-10-16-mr9.md`).
+then again after MR !9 together with that fault-injection run.
 
 ### Is replay really bit-identical?
 
@@ -369,7 +376,7 @@ That is one job, not a proof for every host.
   less) and `maxReceiveCount` is 5 (AWS's recommended minimum). A shard that
   fails does not wait out the 180 s: the worker sets its visibility to a linear
   backoff (10 s × attempt) with `ChangeMessageVisibility`, so its retries and
-  the move to the DLQ take about 2.5 minutes, not 15 (one measured run: 162 s to the DLQ). Nothing consumes the DLQ,
+  the move to the DLQ take about 3 minutes, not 15 (one measured run: ~179 s to the DLQ). Nothing consumes the DLQ,
   so its depth alarm fires. On the last receive the worker records the
   failure, and the job ends `PARTIAL` with `failed_shard_indexes` and
   `shard_errors`. No result is written for a `PARTIAL` job.
@@ -430,6 +437,9 @@ That is one job, not a proof for every host.
   `aws ssm put-parameter --overwrite`; warm containers pick it up within the
   hour, or immediately after any function configuration change (for example
   `terraform apply` with a changed variable), which replaces the containers.
+  Deleting a parameter does not revoke a key at once: the stale-value fallback
+  above keeps a warm container accepting the cached key for up to 25 hours, so
+  revoke by overwriting the parameter (or by any function configuration change).
 - **API auth**: the Function URL is `AuthType=NONE` with an **application-layer
   key check on a public endpoint**: the handler compares the bearer key in
   constant time, rejects bodies over 4 KB before parsing, and serves only the
