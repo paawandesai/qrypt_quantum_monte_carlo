@@ -7,8 +7,9 @@
 | Claude Code (cloud session, inside a Claude project) | Anthropic Claude Opus 5.5 (`claude-opus-5-5`, 1M context) | design plan, all application code, tests, Terraform, CI configuration, scripts, README and this file |
 
 The candidate (Paawan) directed the work, set the guardrails, made the design
-decisions listed below, and reviews the output. Commits made by the assistant
-carry a `Co-Authored-By: Claude` trailer.
+decisions listed below, and reviewed the output (README and this file on
+2026-10-17). Commits made by the assistant carry a `Co-Authored-By: Claude`
+trailer.
 
 ## Inputs that materially shaped the solution
 
@@ -22,10 +23,45 @@ carry a `Co-Authored-By: Claude` trailer.
   account including GSIs; metric dimensions without job ids; reserved
   concurrency as the real cost limiter; honest README wording.
 - A design and build plan (a Claude Doc written by the assistant and reviewed
-  by the candidate) choosing Python 3.13 on arm64 with pinned numpy,
+  by the candidate; it lives outside the repo, and its decisions are the ones
+  listed here) choosing Python 3.13 on arm64 with pinned numpy,
   `SeedSequence` spawn keys, SHA-256 of the 1 KiB block as the master seed,
   float-hex storage, three Lambdas, a bearer key on a NONE-auth Function URL,
   a 5,000 KiB entropy ceiling and a 14-per-10 s Qrypt limiter.
+
+## Prompts and configuration, quoted
+
+The guardrails were set as standing instructions for every assistant session in
+the project, so they acted as the main prompt configuration. These lines, quoted
+verbatim from the candidate's guardrails, shaped the design most:
+
+> Qrypt is the ONLY entropy source. If the entropy request fails
+> (401/403/429/5xx/timeout), the job is rejected with the cause in the error
+> body. There is no fallback to `os.urandom`, `secrets`, `random`, `time`,
+> `uuid`, or any local RNG.
+
+> Replay RECOMPUTES. It never returns the stored result and calls it a replay.
+
+> The replay test asserts equality on the float64 hex of estimate, standard
+> error, and CI bounds. Never `pytest.approx`. If exact equality cannot be
+> achieved, README says "deterministic to N ulps" and never "bit-identical".
+
+> Terraform never uses `data "aws_ssm_parameter"` on the secret: with
+> decryption (the default) the plaintext lands in state and in `terraform plan`
+> output.
+
+> `reserved_concurrent_executions` on workers is required; Function URLs have
+> no throttling except through reserved concurrency (max RPS = 10x reserved).
+
+> There is no model at runtime; keep it that way (no LLM in the submit, worker,
+> or replay path).
+
+Working rules given in the conversation, paraphrased: the assistant runs plans
+and tests freely but asks before every `terraform apply` or `destroy` and
+applies only from a fresh `main`; it never bypasses commit hooks or weakens a
+check without asking; the one-line description is the candidate's own words.
+Where a guardrail conflicted with the brief or with AWS, the conflict is
+recorded in the README's Known constraints table rather than resolved silently.
 
 ## Model-generated artifacts and how far each is verified
 
@@ -42,7 +78,7 @@ carry a `Co-Authored-By: Claude` trailer.
 | `src/qmc/console/*` (web console UI and its copy) | designed after the build on a Claude Design canvas on the candidate's Forge design system and approved by the candidate on 2026-10-15, then restyled to match; Playwright smoke test against a moto-backed local server and, by hand on 2026-10-15, against the deployed stack (fault path local only; that run's output was not committed); screenshots reviewed by the assistant | real browsers other than Chromium; the fault-injection path on the deployment; accessibility audit beyond keyboard focus and contrast choices |
 | `scripts/verify.py` | test against a moto-backed job bundle; a real deployed bundle verified `bit-identical` on x86_64 | |
 | README cost arithmetic | arithmetic re-checked by hand; Lambda durations measured from REPORT log lines (`scripts/bench.py gbs`, 2026-10-15); Lambda allowances and the AWS Budgets pricing page checked 2026-10-15 | the other services' free-tier figures were not re-checked against current AWS pages |
-| README and this file | read by the assistant against the guardrails | candidate review pending |
+| README and this file | read by the assistant against the guardrails; repeated independent review passes by fresh assistant sessions against the brief, each finding checked against the code or the live stack before it was acted on; reviewed by the candidate on 2026-10-17 | |
 | Design plan (Claude Doc, outside the repo) | candidate review | |
 
 The system has no AI feature: prices come from simulation and are checked
