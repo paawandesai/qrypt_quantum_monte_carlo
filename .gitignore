@@ -1,5 +1,7 @@
 # Secrets and local config: never committed
 .env
+qrypt-token.txt*
+api-key.txt
 .env.*
 !.env.example
 

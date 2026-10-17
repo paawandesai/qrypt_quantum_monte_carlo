@@ -283,3 +283,21 @@ def test_malformed_message_is_counted_and_retried(env, capsys):
     assert result == {"batchItemFailures": [{"itemIdentifier": "m1"}, {"itemIdentifier": "m2"}]}
     out = capsys.readouterr().out
     assert out.count('"WorkerErrors": 1') == 2 and out.count('"bad_message"') == 2
+
+
+def test_shard_write_is_conditional_so_a_redelivery_is_a_no_op(env, capsys):
+    """Overwriting with identical data would hide a missing condition, so check
+    the conditional put itself: the second write is refused and counted once."""
+    app = make_app()
+    _, body = submit(app, body=dict(STD, paths=1000, shards=1))
+    records = drain_queue(env["sqs"], env["queue_url"])
+    capsys.readouterr()
+    run_workers(env, records)
+    run_workers(env, records)
+    out = capsys.readouterr().out
+    assert out.count('"PathsSimulated": 1000') == 1
+    assert '"code": "written"' in out and '"code": "duplicate"' in out
+
+    store = env["store"]
+    item = {"job_id": body["job_id"], "shard_index": 0, "n": 1}
+    assert store.put_shard(item) is False  # already written by the worker
