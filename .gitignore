@@ -12,6 +12,7 @@ api-key.txt
 *.tfvars.json
 *.tfplan
 tfplan*
+bundle.json
 .terraform/
 crash.log
 override.tf
