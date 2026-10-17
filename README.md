@@ -316,7 +316,7 @@ not committed.
 
 ## How correctness is checked
 
-All by committed tests (`pytest`, 237 tests including the adversarial set, 3 of which skip until `scripts/build.py` has run; 94% line+branch coverage of `src/qmc`;
+All by committed tests (`pytest`, 242 tests including the adversarial set, 3 of which skip until `scripts/build.py` has run; 94% line+branch coverage of `src/qmc`;
 CI gate 80%). Nothing is verified by a model's say-so.
 
 | Property | Test |
