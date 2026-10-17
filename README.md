@@ -27,14 +27,16 @@ out across SQS-driven Lambda workers with independently derived shard seeds,
 aggregates to a price with a 95% confidence interval, and can be **replayed**
 from its stored seed to recompute the same float64 result.
 
-Status (2026-10-16): code, tests and Terraform are complete and deployed to a
-dev stack in `us-east-1`, with reserved concurrency in place (worker 10, api 5)
-and `terraform plan` showing no drift. The 1M-path job, replay, latency and
-wall-clock benchmarks were re-measured there on 2026-10-16 with the reservations
-on; the fail-closed test passed, and after the last change to deployed code
-(main 7978c46; later commits touch only docs, tests and one Terraform output description) a fresh job, its replay
-and a fault-injection run were checked live, and the `shard-failures` and
-`dlq-depth` alarm emails arrived (`bench/deployed-checks-2026-10-16-mr9.md`).
+Status (2026-10-17): code, tests and Terraform are complete and deployed to a
+dev stack in `us-east-1`, with reserved concurrency in place (worker 10, api 5).
+Every change to deployed code is applied from `main`, and `terraform plan` then
+shows no drift. The 1M-path job, replay, latency and wall-clock benchmarks were
+re-measured there on 2026-10-16 with the reservations on; the fail-closed test
+passed, and a fault-injection run was checked live, with the `shard-failures`
+and `dlq-depth` alarm emails arriving (`bench/deployed-checks-2026-10-16-mr9.md`).
+The 2026-10-17 changes (input edge cases, console wording) were applied the same
+day, and a fresh 1M-path job and its bit-identical replay were checked live
+after each apply.
 
 ## Contents
 
@@ -89,7 +91,7 @@ flowchart LR
     rrec[reconciler role]
   end
   rapi -- "Get/Put/UpdateItem, Query" --> jobs[(jobs table + by_status)]
-  rapi -- "DescribeTable" --> shards[(shards table)]
+  rapi -- "DescribeTable (both tables)" --> shards[(shards table)]
   rapi -- "SendMessage" --> q[[shards queue]]
   rapi -- "GetQueueAttributes" --> dlq[[DLQ]]
   rapi -- "GetParameter" --> ssm[(2 SSM parameters)]
@@ -131,7 +133,7 @@ Every resource in the main stack (39):
 
 The separate `infra/bootstrap/` stack (applied once per account) holds the CI
 identity: `aws_iam_openid_connect_provider.gitlab`, `aws_iam_role.ci`, and its
-inline policies `deploy` and `deny_self_edit`. The two SSM parameters are created
+inline policies `deploy-qmc-stack` and `deny-self-edit`. The two SSM parameters are created
 out of band and are not in either stack.
 
 ### Job lifecycle
@@ -300,7 +302,7 @@ All routes except the console (`GET`/`HEAD /` and `/static/*`) require `Authoriz
 |---|---|
 | `POST /jobs` | `202 {job_id, status: "QUEUED", master_seed_hex, ...}`. Body: `{S0, K, r, sigma, T, paths, shards}` |
 | `GET /jobs` | `{jobs: [...], next_before}` newest first; `?status=&limit=&before=`. Empty list on a fresh deployment |
-| `GET /jobs/{id}` | the job record with `progress` (shards done/failed), then `result` when `COMPLETE`; `404` with a message for an unknown id, `400 invalid_job_id` for one that is not 32 hex characters |
+| `GET /jobs/{id}` | the job record with `progress` (shards done/failed), then `result` when `COMPLETE`; `404` with a message for an unknown id, `400 invalid_job_id` for one that is not 32 lowercase hex characters |
 | `POST /jobs/{id}/replay` | `202` new job with `replay_of`; `409` if the original is not `COMPLETE` or the runtime fingerprint differs; `429` with `Retry-After` once the daily replay cap is reached (100 per UTC day by default) |
 | `GET /jobs/{id}/bundle` | parameters, seed, provenance and hex results for `scripts/verify.py` |
 | `GET /health` | `200` or `503`: both tables `ACTIVE` and SSM reachable (`GetParameter` with `WithDecryption=false`, so the check itself spends no KMS request; authenticating the request may decrypt the key, cached for 1 hour), plus configuration and last-success times |
@@ -308,7 +310,9 @@ All routes except the console (`GET`/`HEAD /` and `/static/*`) require `Authoriz
 
 Input limits: `paths ≤ 10,000,000`, `shards ≤ 100`, `paths/shards ≤ 2,000,000`
 (these three are Terraform variables), `shards ≤ paths`, `0 < sigma ≤ 5`,
-`0 < T ≤ 50`, `0 < S0, K ≤ 1e6`, `-1 ≤ r ≤ 1` (fixed in `src/qmc/params.py`).
+`0 < T ≤ 50`, `0 < S0, K ≤ 1e6`, `-1 ≤ r ≤ 1`, `paths ≥ 2` (a standard error
+needs two samples), and any non-zero number smaller than 1e-100 in magnitude is
+rejected (DynamoDB cannot store it); these are fixed in `src/qmc/params.py`.
 Every type and range violation is listed in the 400 body; missing or unknown
 fields are reported first, on their own.
 
@@ -318,8 +322,8 @@ fields are reported first, on their own.
 vanilla JS shipped inside the api zip; no framework, no third-party scripts, no
 analytics). It covers the three users in the brief:
 
-- **Analyst**: New job, prefilled with the standard case, with the same limits
-  the server enforces, a Black-Scholes preview and the entropy cost; Job detail
+- **Analyst**: New job, prefilled with the standard case, with client-side checks
+  of the main limits (the server re-checks everything), a Black-Scholes preview and the entropy cost; Job detail
   shows progress per shard, then the estimate, SE, 95% CI and the distance from
   Black-Scholes in standard errors.
 - **Auditor**: Provenance (entropy source, Qrypt request id or "not provided by
@@ -343,7 +347,7 @@ not committed.
 
 ## How correctness is checked
 
-All by committed tests (`pytest`, 242 tests including the adversarial set, 3 of which skip until `scripts/build.py` has run; 94% line+branch coverage of `src/qmc`;
+All by committed tests (`pytest`, 242 tests including the adversarial set, 3 of which skip until `scripts/build.py` has run; 95% line+branch coverage of `src/qmc`;
 CI gate 80%). Nothing is verified by a model's say-so.
 
 | Property | Test |
@@ -412,7 +416,7 @@ That is one job, not a proof for every host.
   source: CI greps `src/` for any import of `random`, `secrets` or `uuid`, any
   bare `random.`/`secrets.` call, `os.urandom`, `getrandbits`, `time.time` and
   unseeded `default_rng()`/`SeedSequence()`, and fails on a hit. Job ids are derived by
-  hashing (block hash + time), so the deployed code needs no local randomness at all.
+  hashing (block hash + time; a replay id hashes the original id, the time and a counter), so the deployed code needs no local randomness at all.
 - **Mock Qrypt client**: lives in `tests/fakes/`, injected by tests through the
   `App` constructor, absent from every zip (asserted), and selectable by no
   environment variable. A missing or invalid token makes submit fail closed,
@@ -549,7 +553,7 @@ steady 100 jobs/day would.
 | Service | Usage per month | Always-free allowance | Headroom |
 |---|---|---|---|
 | Lambda requests | 3,000 submits + 30,000 shard invocations + ~90,000 status polls (30/job) + 8,640 reconciler runs ≈ 132k | 1M | ~87% |
-| Lambda compute | worker 170 ms × 1 GB × 30,000 = 5,086 GB-s; api 158 ms × 0.5 GB × 93,000 = 7,368 GB-s; reconciler 260 ms × 0.25 GB × 8,640 = 562 GB-s ≈ 13,000 GB-s (measured mean billed duration). Even if every invocation billed the p95 (1,354 / 448 / 1,332 ms) it would be ≈ 64,000 GB-s | 400,000 GB-s | ~97% (84% at p95) |
+| Lambda compute | worker 169.5 ms × 1 GB × 30,000 = 5,086 GB-s; api 158.4 ms × 0.5 GB × 93,000 = 7,368 GB-s; reconciler 260 ms × 0.25 GB × 8,640 = 562 GB-s ≈ 13,000 GB-s (measured mean billed duration). Even if every invocation billed the p95 (1,354 / 448 / 1,332 ms) it would be ≈ 64,000 GB-s | 400,000 GB-s | ~97% (84% at p95) |
 | DynamoDB | provisioned 20 RCU + 20 WCU across both tables and the GSI; storage < 100 MB (TTL 7 days) | 25 RCU, 25 WCU, 25 GB per account per region | 5 RCU/WCU |
 | SQS | idle long polling by the event-source mapping ≈ 0.26–0.65M requests (5 pollers shrinking to 2, 20 s waits) + jobs: 3,000 × (1 batch send + 10 receives + 10 deletes) ≈ 63k + `/system` reads | 1M | ~29% worst case |
 | KMS | 2 SecureString decrypts per api container per hour at most (secrets cached for 1 hour); worst case 5 warm containers all month ≈ 7,200; the health check itself never decrypts | 20,000 requests | ≥ 64% |
@@ -626,14 +630,15 @@ Other constraints:
   `bench/deployed-checks-2026-10-14.md` were measured in that state. The
   reservations were re-applied on 2026-10-15 and a second plan showed no drift,
   and the latency and wall-clock benchmarks were re-run with them on 2026-10-16.
-- **Qrypt provides no signed receipt.** Provenance proves the seed matches a
-  stored block hash; it cannot prove Qrypt produced the block. We describe it as
-  externally attestable seed provenance, not "true randomness" or guaranteed
-  independence: shard independence comes from `SeedSequence` spawn keys, and the
+- **Qrypt provides no signed receipt.** Each job records its master seed and the
+  SHA-256 of the Qrypt block it came from, but the raw block is not stored, so a
+  third party cannot re-check that link, and nothing proves Qrypt produced the
+  block. We describe it as recorded seed provenance, not proof of origin, "true
+  randomness" or guaranteed independence: shard independence comes from `SeedSequence` spawn keys, and the
   Qrypt block supplies the master seed's provenance.
 - **PARTIAL from a timeout is late.** It appears after the reconciler's next run,
   up to 35 minutes after submit (30-minute deadline + 5-minute schedule).
-- **Capacity.** 25 WCU total means a 100-shard job can briefly throttle; the SDK
+- **Capacity.** 20 WCU in total (10 on the shards table) means a 100-shard job can briefly throttle; the SDK
   retries with backoff and `max_shards` bounds it.
 - **Rate limiter.** Fixed 10 s windows of 14 keep any 10 s span at or under 28
   requests per deployment. Two deployments sharing one Qrypt token would need to

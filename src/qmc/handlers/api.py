@@ -49,6 +49,9 @@ SECURITY_HEADERS = {
 }
 
 
+METHOD_OVERRIDE_HEADERS = frozenset({"x-http-method-override", "x-http-method", "x-method-override"})
+
+
 class HttpError(Exception):
     def __init__(self, status: int, error: str, message: str, headers: dict | None = None, **extra):
         super().__init__(message)
@@ -186,6 +189,11 @@ class App:
         path = event.get("rawPath") or "/"
         request_id = getattr(context, "aws_request_id", None)
         try:
+            # The Function URL front end honours method-override headers, which
+            # would let a GET reach POST handlers; refuse them outright.
+            sent = {k.lower() for k in (event.get("headers") or {})}
+            if sent & METHOD_OVERRIDE_HEADERS:
+                raise HttpError(400, "method_override_not_allowed", "method override headers are not accepted")
             resp = self.route(method, path, event)
         except HttpError as exc:
             resp = _json(exc.status, exc.body, exc.headers)

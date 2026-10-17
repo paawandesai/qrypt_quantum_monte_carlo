@@ -324,3 +324,9 @@ def test_job_deadline_comes_from_configuration(aws):
         return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
     assert (ts(job["deadline_at"]) - ts(job["created_at"])).total_seconds() == 1800
+
+
+@pytest.mark.parametrize("header", ["X-HTTP-Method-Override", "x-http-method", "X-Method-Override"])
+def test_method_override_headers_are_refused(aws, header):
+    status, body, _ = call(make_app(), "GET", "/jobs", headers={header: "POST"})
+    assert status == 400 and body["error"] == "method_override_not_allowed"
