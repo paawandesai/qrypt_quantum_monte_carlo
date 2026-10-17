@@ -62,7 +62,10 @@ def main(port: int) -> None:
                     for _ in range(4):  # retries so a fault-injected shard reaches its last attempt
                         recs = drain_queue(aws["sqs"], aws["queue_url"])
                         for r in recs:
-                            r["attributes"]["ApproximateReceiveCount"] = "3"
+                            # Pretend this is the last allowed receive (the worker's own
+                            # limit, so it tracks MAX_RECEIVE_COUNT) so a fault-injected
+                            # shard is written off instead of waiting out SQS retries.
+                            r["attributes"]["ApproximateReceiveCount"] = str(worker.max_receives())
                         if recs:
                             worker.handler({"Records": recs}, None)
                 data = resp["body"].encode()
