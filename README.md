@@ -156,7 +156,7 @@ below names that region.
    `-var worker_reserved_concurrency=-1 -var api_reserved_concurrency=-1`
    (this removes the hard cap on parallel spend; the event-source mapping's
    maximum concurrency of 5 and the per-job limits still apply). Pass the same
-   two flags on every later `apply` and `destroy`, or put them in a gitignored
+   two flags on every later `plan`, `apply` and `destroy`, or put them in a gitignored
    `infra/terraform.tfvars`, or a later apply will try to reserve 10 + 5 and fail.
 3. Store the two secrets as SSM SecureStrings, off camera, never through Terraform.
    Write the files without a trailing newline (the API strips one anyway):
@@ -171,7 +171,8 @@ below names that region.
    shred -u qrypt-token.txt api-key.txt   # macOS has no shred: use rm -P
    ```
 
-**Deploy, run, replay, destroy:**
+**Deploy, run, replay, destroy** (recording your screen? read "Recording or
+sharing a screen" below first, because `apply` prints your account id):
 
 ```bash
 python3.13 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.lock
@@ -188,8 +189,9 @@ export QMC_API_URL=$(terraform -chdir=infra output -raw api_url)
 export QMC_API_KEY=$(aws ssm get-parameter --region us-east-1 --name /qrypt-mc/api-key --with-decryption --query Parameter.Value --output text)
 
 python scripts/qmc_cli.py submit --paths 1000000 --shards 10 --wait   # standard case
-python scripts/qmc_cli.py replay <job_id> --wait                      # replay_comparison.verdict
-python scripts/qmc_cli.py bundle <job_id> > bundle.json && python scripts/verify.py bundle.json
+JOB=paste-the-job_id-printed-by-submit
+python scripts/qmc_cli.py replay "$JOB" --wait                        # replay_comparison.verdict
+python scripts/qmc_cli.py bundle "$JOB" > bundle.json && python scripts/verify.py bundle.json
 
 terraform -chdir=infra destroy               # needs build/*.zip and TF_VAR_alarm_email too
 ```
@@ -225,20 +227,23 @@ terraform -chdir=infra plan -out=demo.tfplan 2>&1 | mask
 terraform -chdir=infra apply demo.tfplan 2>&1 | mask
 ```
 
-The plan file is gitignored; it holds the account id and the alarm email, so
-delete it afterwards.
+The plan file lands in `infra/demo.tfplan` (because of `-chdir`) and is
+gitignored; it holds the account id and the alarm email, so delete it afterwards
+with `rm infra/demo.tfplan`.
 
 To see the DLQ alarm fire with a genuinely failing worker (the demo path),
 turn fault injection on, submit a job that names a failing shard, then turn it
 off again. If you deployed with the `-1` reservation flags and no
-`terraform.tfvars`, add them to both applies:
+`terraform.tfvars`, add them to both `plan` commands (a saved plan fixes the
+variables, so `apply demo.tfplan` refuses extra `-var` flags):
 
 ```bash
 terraform -chdir=infra plan -var enable_fault_injection=true -out=demo.tfplan 2>&1 | mask
 terraform -chdir=infra apply demo.tfplan 2>&1 | mask
 python scripts/qmc_cli.py submit --paths 1000 --shards 2 --fail-shards 0 --wait   # ends PARTIAL
 terraform -chdir=infra plan -out=demo.tfplan 2>&1 | mask      # fault injection back off
-terraform -chdir=infra apply demo.tfplan 2>&1 | mask && rm demo.tfplan
+terraform -chdir=infra apply demo.tfplan 2>&1 | mask
+rm infra/demo.tfplan
 ```
 
 **In a 5-minute video**: the `dlq-depth` alarm took 351 s from submit in the
@@ -311,7 +316,7 @@ not committed.
 
 ## How correctness is checked
 
-All by committed tests (`pytest`, 236 tests including the adversarial set, 3 of which skip until `scripts/build.py` has run; 94% line+branch coverage of `src/qmc`;
+All by committed tests (`pytest`, 237 tests including the adversarial set, 3 of which skip until `scripts/build.py` has run; 94% line+branch coverage of `src/qmc`;
 CI gate 80%). Nothing is verified by a model's say-so.
 
 | Property | Test |
@@ -648,7 +653,7 @@ infra/                Terraform root module and modules/; bootstrap/ holds the C
 ```
 
 ```bash
-python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.lock
+python3.13 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.lock
 pytest --cov                      # unit + moto-backed handler tests
 ruff check src tests scripts eval && ruff format --check src tests scripts eval
 mypy                              # typecheck src/qmc
