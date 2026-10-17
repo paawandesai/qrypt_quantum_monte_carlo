@@ -214,6 +214,10 @@ class App:
             log.error(event="api_key_unavailable")
             metrics.emit(ApiErrors=1)
             raise HttpError(503, "api_key_unavailable", "API key could not be loaded") from None
+        if not expected:
+            log.error(event="api_key_empty")
+            metrics.emit(ApiErrors=1)
+            raise HttpError(503, "api_key_unavailable", "API key is empty")
         if not hmac.compare_digest(supplied[7:].encode(), expected.encode()):
             raise HttpError(401, "unauthorized", "invalid bearer key")
 

@@ -270,10 +270,13 @@ class Store:
             batch = messages[start : start + 10]
             entries = {str(m["shard_index"]): m for m in batch}
             for _attempt in range(2):
-                resp = self.sqs.send_message_batch(
-                    QueueUrl=self.queue_url,
-                    Entries=[{"Id": k, "MessageBody": json.dumps(v)} for k, v in entries.items()],
-                )
+                try:
+                    resp = self.sqs.send_message_batch(
+                        QueueUrl=self.queue_url,
+                        Entries=[{"Id": k, "MessageBody": json.dumps(v)} for k, v in entries.items()],
+                    )
+                except ClientError:
+                    continue  # the whole batch failed; retry once, then count it as failed
                 entries = {f["Id"]: entries[f["Id"]] for f in resp.get("Failed", [])}
                 if not entries:
                     break

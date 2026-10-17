@@ -24,6 +24,9 @@ BOUNDS = {
     "T": (0.0, 50.0),
 }
 R_RANGE = (-1.0, 1.0)  # inclusive
+# DynamoDB numbers cannot be smaller in magnitude than 1e-130; anything this
+# small is meaningless here, so it is rejected before any entropy is spent.
+MIN_MAGNITUDE = 1e-100
 
 
 class ValidationError(ValueError):
@@ -130,6 +133,11 @@ def validate_job_request(body, limits: Limits) -> tuple[JobParams, list[int]]:
     for name in INT_FIELDS:
         vals[name] = _as_int(name, body[name], problems)
 
+    for name in FLOAT_FIELDS:
+        v = vals[name]
+        if v is not None and v != 0 and abs(v) < MIN_MAGNITUDE:
+            problems.append(f"{name} must be 0 or at least {MIN_MAGNITUDE:g} in magnitude")
+            vals[name] = None
     for name, (lo, hi) in BOUNDS.items():
         v = vals[name]
         if v is not None and not (lo < v <= hi):
@@ -140,8 +148,8 @@ def validate_job_request(body, limits: Limits) -> tuple[JobParams, list[int]]:
 
     paths, shards = vals["paths"], vals["shards"]
     if paths is not None:
-        if paths < 1:
-            problems.append("paths must be >= 1")
+        if paths < 2:
+            problems.append("paths must be >= 2 (a standard error needs two samples)")
         elif paths > limits.max_paths:
             problems.append(f"paths must be <= {limits.max_paths} (cost limit)")
     if shards is not None:
@@ -149,7 +157,7 @@ def validate_job_request(body, limits: Limits) -> tuple[JobParams, list[int]]:
             problems.append("shards must be >= 1")
         elif shards > limits.max_shards:
             problems.append(f"shards must be <= {limits.max_shards}")
-    if paths is not None and shards is not None and paths >= 1 and shards >= 1:
+    if paths is not None and shards is not None and paths >= 2 and shards >= 1:
         if shards > paths:
             problems.append("shards must be <= paths")
         elif math.ceil(paths / shards) > limits.max_paths_per_shard:
