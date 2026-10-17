@@ -33,6 +33,6 @@ output "dashboard_name" {
 }
 
 output "api_key_param_name" {
-  description = "Where the bearer key lives. Fetch it with: aws ssm get-parameter --name <this> --with-decryption --query Parameter.Value --output text"
+  description = "Where the bearer key lives. Fetch it with: aws ssm get-parameter --region us-east-1 --name <this> --with-decryption --query Parameter.Value --output text"
   value       = var.api_key_param_name
 }
