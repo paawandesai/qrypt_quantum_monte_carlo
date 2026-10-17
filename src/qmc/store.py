@@ -23,7 +23,7 @@ from functools import cached_property
 import boto3
 from boto3.dynamodb.conditions import Attr, Key
 from botocore.config import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from . import ids
 
@@ -275,8 +275,8 @@ class Store:
                         QueueUrl=self.queue_url,
                         Entries=[{"Id": k, "MessageBody": json.dumps(v)} for k, v in entries.items()],
                     )
-                except ClientError:
-                    continue  # the whole batch failed; retry once, then count it as failed
+                except (ClientError, BotoCoreError):
+                    continue  # the whole batch failed (API or network error); retry once, then count it as failed
                 entries = {f["Id"]: entries[f["Id"]] for f in resp.get("Failed", [])}
                 if not entries:
                     break

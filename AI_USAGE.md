@@ -10,8 +10,9 @@
 
 The candidate (Paawan) directed the work, set the guardrails, made the design
 decisions listed below, and reviewed the output (README and this file on
-2026-10-17). Every non-merge commit carries a `Co-Authored-By: Claude`
-trailer, including the few committed under the candidate's name.
+2026-10-17). Every commit is authored under the candidate's name; of the 72
+non-merge commits, the assistant committed 64 and the candidate 8, and every one
+carries a `Co-Authored-By: Claude` trailer.
 
 ## Inputs that materially shaped the solution
 
@@ -27,7 +28,7 @@ trailer, including the few committed under the candidate's name.
 - A design and build plan (a Claude Doc written by the assistant and reviewed
   by the candidate; it lives outside the repo, and its decisions are the ones
   listed here) choosing Python 3.13 on arm64 with pinned numpy,
-  `SeedSequence` spawn keys, SHA-256 of the 1 KiB block as the master seed,
+  `SeedSequence` spawn keys, domain-separated SHA-256 of the 1 KiB block as the master seed,
   float-hex storage, three Lambdas, a bearer key on a NONE-auth Function URL,
   a 5,000 KiB entropy ceiling and a 14-per-10 s Qrypt limiter.
 
@@ -69,10 +70,10 @@ recorded in the README's Known constraints table rather than resolved silently.
 
 | Artifact | Verified by | Not verified |
 |---|---|---|
-| `src/qmc/**` (all deployed code, including the console) | 245 unit, moto-backed and adversarial tests (95% line+branch coverage); ruff; the seed-path grep; `terraform apply` succeeded and a second plan shows no drift | other regions, other Qrypt endpoints, and load beyond the measured runs; see `bench/deployed-checks-2026-10-14.md`, `-2026-10-16.md`, `-2026-10-16-mr9.md` and `bench/rebuild-2026-10-15.md` for what ran on AWS against the real Qrypt API |
+| `src/qmc/**` (all deployed code, including the console) | 247 unit, moto-backed and adversarial tests (3 skip until `scripts/build.py` has run; 95% line+branch coverage); ruff; the seed-path grep; `terraform apply` succeeded and a second plan shows no drift | other regions, other Qrypt endpoints, and load beyond the measured runs; see `bench/deployed-checks-2026-10-14.md`, `-2026-10-16.md`, `-2026-10-16-mr9.md` and `bench/rebuild-2026-10-15.md` for what ran on AWS against the real Qrypt API |
 | `eval/adversarial/**` | run green; each case was read for whether it can fail | that the hostile strings cover every attack form |
 | `tests/**` | run green locally; each test was read for whether it can fail (the statistical test is intentionally non-deterministic) | that the test suite covers every edge case the brief lists |
-| `infra/**` (Terraform) | `terraform validate`, `terraform plan` (40 resources with the S3 code bucket, no secret values in plan output), tflint (preset `all`), Checkov (0 failed; every suppression has an inline reason) | `apply` succeeded (first without reservations, re-applied with them on 2026-10-15) and a second plan showed no drift; a throwaway stack was applied from empty (85 s) and destroyed cleanly (123 s) on 2026-10-15; the dev stack itself has not been destroyed (planned after grading) |
+| `infra/**` (Terraform) | `terraform validate`, `terraform plan` (40 resources with the S3 code bucket, no secret values in plan output), tflint (preset `all`), Checkov (0 failed; every suppression has an inline reason); `apply` succeeded (first without reservations, re-applied with them on 2026-10-15) and a second plan showed no drift; a throwaway stack was applied from empty (85 s) and destroyed cleanly (123 s) on 2026-10-15 | the dev stack itself has not been destroyed (planned after grading) |
 | `.gitlab-ci.yml` | GitLab's CI lint API reports it valid; MR and main pipelines ran green on the project runner; auto-cancel observed; the docs-only skip on main; the OIDC `plan` job and a manual `apply` ran green on 2026-10-15; the nightly schedule ran the `heavy` lane (browser smoke) and a no-drift plan; per-job wall time and peak memory recorded from job logs (MR !2) | per-job memory of every process combined (the logs record the largest single process) |
 | `.pre-commit-config.yaml` | hook timings measured; a deliberate lint error blocked a commit | |
 | `scripts/build.py` | rebuilt twice with byte-identical zips; packaging test; worker zip compared entry by entry between CI and a local build (only pip's `bin/` scripts differed, now excluded) | nothing further: the deployed runs in `bench/` show the arm64 numpy wheel importing and running on Lambda |

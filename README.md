@@ -157,7 +157,7 @@ out of band and are not in either stack.
    conditional put on `job_id + shard_index`.
 5. It then `ADD`s its index to the job's `done_shards` number set (idempotent).
    The worker that sees every shard accounted for wins a conditional
-   `RUNNING → AGGREGATING` flip, sorts the partials by `shard_index`, reduces with
+   `RUNNING` (or `QUEUED`) `→ AGGREGATING` flip, sorts the partials by `shard_index`, reduces with
    `math.fsum`, and writes `COMPLETE` with estimate, standard error and 95% CI (as
    float64 hex plus a display decimal), plus the Black-Scholes distance in SEs.
 6. `POST /jobs/{id}/replay` creates a new job linked to the original, with the
@@ -356,7 +356,7 @@ not committed.
 
 ## How correctness is checked
 
-All by committed tests (`pytest`, 245 tests including the adversarial set, 3 of which skip until `scripts/build.py` has run; 95% line+branch coverage of `src/qmc`;
+All by committed tests (`pytest`, 247 tests including the adversarial set, 3 of which skip until `scripts/build.py` has run; 95% line+branch coverage of `src/qmc`;
 CI gate 80%). Nothing is verified by a model's say-so.
 
 | Property | Test |
@@ -452,7 +452,10 @@ That is one job, not a proof for every host.
   the move to the DLQ take about 3 minutes, not 15 (one measured run: ~179 s to the DLQ). Nothing consumes the DLQ,
   so its depth alarm fires. On the last receive the worker records the
   failure, and the job ends `PARTIAL` with `failed_shard_indexes` and
-  `shard_errors`. No result is written for a `PARTIAL` job.
+  `shard_errors`. If that last attempt crashes or times out instead, nothing is
+  recorded then: `worker-errors` fires, and the reconciler finalizes the job at
+  its 30-minute deadline (`PARTIAL`, or `COMPLETE` if the shard had already been
+  written). No result is written for a `PARTIAL` job.
   Every failed attempt emits the `WorkerErrors` metric. The handler catches the
   exception to report a partial batch failure, so Lambda's own `Errors` metric
   never sees it; the `worker-errors` alarm therefore sums `Errors` and
