@@ -50,6 +50,7 @@ after each apply.
 - [Security](#security)
 - [Cost: the $0 arithmetic](#cost-the-0-arithmetic)
 - [Benchmarks](#benchmarks)
+- [During grading (shared limits and owner runbook)](#during-grading-shared-limits-and-owner-runbook)
 - [Known constraints](#known-constraints)
 - [What this system does not do](#what-this-system-does-not-do)
 - [Repository layout and development](#repository-layout-and-development)
@@ -616,6 +617,36 @@ The PRD's illustrative business metrics, against what was measured:
 
 Qrypt usage: the dev stack's entropy ledger read 136 KiB used on 2026-10-17
 (1 KiB per job, ceiling 5,000 KiB), against the assessment budget of 10,240 KiB.
+
+## During grading (shared limits and owner runbook)
+
+Graders share one key and one stack, so these limits are shared too:
+
+- **Submits**: 14 per 10 s across everyone (below Qrypt's 30); the 15th gets
+  `429 rate_limited` with `Retry-After`. Don't loop `scripts/bench.py` against
+  this deployment.
+- **Replays**: 100 per UTC day across everyone; then `429 replay_limit_reached`
+  until 00:00 UTC.
+- **Entropy**: each valid submit that passes the rate limiter spends 1 KiB of a
+  lifetime ceiling of 5,000 KiB (`GET /system` shows what is left); at the
+  ceiling, submits get `409 entropy_ceiling_reached` while reads and replays
+  keep working.
+- **Retention**: jobs expire 7 days after they are created.
+  `bench/bundle-2cc29f825a53e7360fe39b27343f9ac6.json` is a saved 1M-path job
+  (2026-10-17) that `python scripts/verify.py` recomputes offline, bit for bit,
+  after the live copy has expired.
+- **Heavy load** slows jobs (DynamoDB write capacity is the bottleneck) and can
+  end at worst in `PARTIAL`; it never produces a wrong `COMPLETE`.
+
+Owner runbook:
+
+| Situation | What to do |
+|---|---|
+| Entropy ceiling reached | Check the real remaining allotment in the Qrypt portal, raise `entropy_ceiling_kib` in `infra/variables.tf` (staying under it), merge to `main` and apply; it is a Lambda environment variable, so it takes effect on the next request. A rebuilt stack starts its ledger at 0, so set the ceiling to what Qrypt has left |
+| Replay cap reached | Wait for 00:00 UTC, or delete that day's `#qrypt-rate#replay-YYYY-MM-DD` item from the jobs table |
+| `dlq-depth` alarm | It stays in ALARM while the DLQ holds a message, so a later incident sends no new email: inspect the message, then purge the DLQ (command in the quick-start) |
+| Key shared too widely | Overwrite `/qrypt-mc/api-key` and make any function configuration change (see Security) |
+| Until grading ends | Don't change numpy, the architecture or the algorithm version: every stored job would then refuse replay with `409 runtime_mismatch` |
 
 ## Known constraints
 
