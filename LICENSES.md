@@ -1,5 +1,7 @@
 # Licenses
 
+This repository's own code: copyright 2026 Paawan Desai, all rights reserved, shared for assessment only (see `LICENSE`). The rest of this file covers third-party components.
+
 Audit run with `pip-licenses --from=mixed` (re-run before submission; CI's
 `license-audit` job regenerates the table as the `LICENSES.generated.md` artifact and fails on GPL/AGPL, with partial matching so "GPLv2", "GPLv3+" and SPDX ids are caught too). That job reads pip metadata only, so libraries vendored inside a wheel (numpy's, below) were checked by hand from the built zip. Last run: 2026-10-17, matching the table below; vendored libraries checked the same day.
 `pip-licenses` leaves itself and its own dependencies out of its report by default; they are dev-only and checked by hand: pip-licenses 5.5.5 (MIT), prettytable 3.18.0 (BSD-3-Clause), wcwidth 0.9.2 (MIT).

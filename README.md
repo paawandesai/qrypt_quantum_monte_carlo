@@ -764,4 +764,4 @@ pre-commit install --hook-type pre-commit --hook-type pre-push
 # pre-push (~13 s warm): mypy + full unit suite on 2 workers. Never bypass with --no-verify.
 ```
 
-AI assistance is disclosed in [AI_USAGE.md](AI_USAGE.md); licenses in [LICENSES.md](LICENSES.md).
+AI assistance is disclosed in [AI_USAGE.md](AI_USAGE.md); this code is all rights reserved, shared for assessment ([LICENSE](LICENSE)); third-party licenses are in [LICENSES.md](LICENSES.md).
