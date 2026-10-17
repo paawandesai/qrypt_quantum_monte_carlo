@@ -68,8 +68,8 @@ resource "aws_lambda_function" "api" {
   #checkov:skip=CKV_AWS_117:No VPC: the function calls AWS APIs and Qrypt over the internet; a VPC would need a NAT gateway, which is not free.
   #checkov:skip=CKV_AWS_116:Synchronous Function URL invocations return errors to the caller; an async DLQ never applies.
   #checkov:skip=CKV_AWS_173:Environment variables hold parameter names and limits, never secret values; a CMK would cost ~$1/month.
-  #checkov:skip=CKV_AWS_272:Code signing needs AWS Signer profiles; zips are built reproducibly in CI instead.
-  #checkov:skip=CKV_AWS_50:X-Ray tracing is off to keep the free-tier arithmetic simple; structured logs carry request ids and timings.
+  #checkov:skip=CKV_AWS_272:Not enabled: it needs a Signer profile and a signing step. Integrity rests on deploys only from the main-branch OIDC role, plus source_code_hash.
+  #checkov:skip=CKV_AWS_50:X-Ray is off to avoid extra IAM grants and an SDK dependency; structured logs carry request ids and timings.
   function_name                  = "${var.name}-api"
   role                           = aws_iam_role.api.arn
   runtime                        = "python3.13"

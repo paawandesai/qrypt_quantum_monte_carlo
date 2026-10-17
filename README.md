@@ -7,7 +7,7 @@
 Every API route needs the bearer key. For this deployment the candidate sends it
 to the graders privately with the submission (it is never committed). In your own
 deployment you read it from SSM as shown in the [quick-start](#grader-quick-start).
-To try this deployment with the key you were sent (Python 3.13, from a clone):
+To try this deployment with the key you were sent (any Python 3.11+, from a clone; the CLI uses only the standard library):
 
 ```bash
 export QMC_API_URL=https://tiszf5ypkbkclttornac5wabgu0lscrt.lambda-url.us-east-1.on.aws
@@ -16,7 +16,8 @@ python3 scripts/qmc_cli.py submit --paths 1000000 --shards 10 --wait
 ```
 
 On macOS with a python.org Python, run its "Install Certificates.command" once
-or the HTTPS call fails certificate checks; on Windows use WSL.
+or the HTTPS call fails certificate checks. On Windows use WSL and clone inside
+the WSL filesystem (`~/`), not under `/mnt/c`.
 The stack stays up through grading, then is destroyed and the key rotated.
 
 **Demo video:** _(link added with the submission)_
@@ -74,7 +75,7 @@ flowchart LR
   rec --> shards
   api -. "DescribeTable (/health)" .-> shards
   api -. "queue depth (/system)" .-> dlq
-  api & w -- "logs + EMF metrics" --> cw[CloudWatch Logs 14 d<br/>7 custom metrics, 5 alarms, dashboard]
+  api & w -- "logs + EMF metrics" --> cw[CloudWatch Logs 14 d<br/>7 custom metrics, 6 alarms, dashboard]
   rec -- logs --> cw
   cw -- alarms --> sns[SNS alerts topic] --> mail([email])
   budget[AWS Budget $1/month] --> sns
@@ -118,17 +119,17 @@ Terraform layout (`infra/`): one root module and five child modules.
 | `data` | `jobs` table (+ `by_status` GSI) and `shards` table, provisioned capacity, TTL 7 days |
 | `workers` | shard queue + DLQ (redrive, maxReceiveCount 5, visibility timeout 180 s), private S3 bucket for the worker zip, worker function + role + log group, SQS event-source mapping, reconciler function + role + log group + 5-minute EventBridge rule |
 | `api` | api function + role + log group, Function URL, the two URL resource-policy statements |
-| `observability` | SNS topic + policy + email subscription, 5 alarms, dashboard |
+| `observability` | SNS topic + policy + email subscription, 6 alarms, dashboard |
 | `budget` | $1/month AWS Budget (alerts when actual spend passes 1%, i.e. $0.01, and when forecast spend passes 100%; spend counted before credits and refunds) |
 
-Every resource in the main stack (39):
+Every resource in the main stack (40):
 
 | Module | Resources |
 |---|---|
 | `api` (7) | `aws_lambda_function.api`, `aws_lambda_function_url.api`, `aws_lambda_permission.url_invoke`, `aws_lambda_permission.url_invoke_function`, `aws_iam_role.api`, `aws_iam_role_policy.api`, `aws_cloudwatch_log_group.api` |
 | `data` (2) | `aws_dynamodb_table.jobs` (with the `by_status` GSI), `aws_dynamodb_table.shards` |
 | `workers` (20) | `aws_sqs_queue.shards`, `aws_sqs_queue.dlq`, `aws_sqs_queue_redrive_allow_policy.dlq`, `aws_lambda_event_source_mapping.shards`, `aws_lambda_function.worker`, `aws_iam_role.worker`, `aws_iam_role_policy.worker`, `aws_cloudwatch_log_group.worker`, `aws_s3_bucket.code`, `aws_s3_bucket_public_access_block.code`, `aws_s3_bucket_server_side_encryption_configuration.code`, `aws_s3_bucket_lifecycle_configuration.code`, `aws_s3_object.worker_zip`, `aws_lambda_function.reconciler`, `aws_iam_role.reconciler`, `aws_iam_role_policy.reconciler`, `aws_cloudwatch_log_group.reconciler`, `aws_cloudwatch_event_rule.reconcile`, `aws_cloudwatch_event_target.reconcile`, `aws_lambda_permission.reconcile` |
-| `observability` (9) | `aws_sns_topic.alerts`, `aws_sns_topic_policy.alerts`, `aws_sns_topic_subscription.email`, 5 × `aws_cloudwatch_metric_alarm.this` (worker-errors, dlq-depth, api-errors, qrypt-failures, shard-failures), `aws_cloudwatch_dashboard.main` |
+| `observability` (10) | `aws_sns_topic.alerts`, `aws_sns_topic_policy.alerts`, `aws_sns_topic_subscription.email`, 6 × `aws_cloudwatch_metric_alarm.this` (worker-errors, dlq-depth, api-errors, qrypt-failures, reconciler-errors, shard-failures), `aws_cloudwatch_dashboard.main` |
 | `budget` (1) | `aws_budgets_budget.monthly` |
 
 The separate `infra/bootstrap/` stack (applied once per account) holds the CI
@@ -166,8 +167,13 @@ out of band and are not in either stack.
 
 ## Grader quick-start
 
-Prerequisites: AWS CLI v2 and Terraform ≥ 1.10; Python 3.13 (`python3.13`); a
-Qrypt Entropy token. Everything runs in `us-east-1`, so every AWS CLI command
+Prerequisites: [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
+and [Terraform](https://developer.hashicorp.com/terraform/install) ≥ 1.10;
+Python 3.13 (`python3.13`) with its venv module; a Qrypt Entropy token. Ubuntu
+24.04 (the default WSL distribution) ships 3.12, so there run
+`sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt install python3.13 python3.13-venv`;
+on Debian 12 or elsewhere, `uv python install 3.13` or pyenv works; macOS can use
+the python.org installer or Homebrew. Everything runs in `us-east-1`, so every AWS CLI command
 below names that region.
 
 **Step 0, AWS credentials**: configure credentials for a sandbox account
@@ -212,7 +218,7 @@ python scripts/build.py                      # build/*.zip; plan, apply and dest
 printf 'terraform {\n  backend "local" {}\n}\n' > infra/backend_override.tf
 terraform -chdir=infra init
 export TF_VAR_alarm_email=you@example.com    # then click the link in the SNS email AWS sends
-terraform -chdir=infra apply                 # 39 resources
+terraform -chdir=infra apply                 # 40 resources
 
 export QMC_API_URL=$(terraform -chdir=infra output -raw api_url)
 export QMC_API_KEY=$(aws ssm get-parameter --region us-east-1 --name /qrypt-mc/api-key --with-decryption --query Parameter.Value --output text)
@@ -225,7 +231,7 @@ python scripts/qmc_cli.py bundle "$JOB" > bundle.json && python scripts/verify.p
 terraform -chdir=infra destroy               # needs build/*.zip and TF_VAR_alarm_email too
 ```
 
-`terraform destroy` removes all 39 resources. Left behind on purpose: the two
+`terraform destroy` removes all 40 resources. Left behind on purpose: the two
 SSM parameters and the console budget (delete them in the console if wanted).
 The project's own CI uses GitLab-managed state through `scripts/tf-init.sh`. To
 use that path instead, delete `infra/backend_override.tf` (with it in place
@@ -347,7 +353,7 @@ not committed.
 
 ## How correctness is checked
 
-All by committed tests (`pytest`, 242 tests including the adversarial set, 3 of which skip until `scripts/build.py` has run; 95% line+branch coverage of `src/qmc`;
+All by committed tests (`pytest`, 245 tests including the adversarial set, 3 of which skip until `scripts/build.py` has run; 95% line+branch coverage of `src/qmc`;
 CI gate 80%). Nothing is verified by a model's say-so.
 
 | Property | Test |
@@ -518,13 +524,17 @@ That is one job, not a proof for every host.
   Function URL: `lambda:InvokeFunctionUrl` for `Principal: *` scoped by
   `lambda:FunctionUrlAuthType = NONE`, and `lambda:InvokeFunction` for
   `Principal: *` scoped to invocations via the Function URL. Creating a NONE-auth
-  URL also makes AWS add two statements of its own with the same conditions
-  (`FunctionURLAllowPublicAccess`, `FunctionURLAllowInvokeAction`); they are not
+  URL can also make AWS add statements of its own with the same conditions
+  (`FunctionURLAllowPublicAccess` and/or `FunctionURLAllowInvokeAction`; the dev
+  stack currently has only the second); they are not
   in Terraform and are removed with the function. Ours use different ids so an
   apply from empty does not collide with them. Custom metrics use
   CloudWatch Embedded Metric Format (log lines), so no `cloudwatch:PutMetricData`
   wildcard is needed at all.
-- **Encryption**: DynamoDB with AWS-owned keys, SQS with SSE-SQS, TLS everywhere.
+- **Encryption**: DynamoDB with AWS-owned keys, SQS with SSE-SQS, the S3 code
+  bucket with SSE-S3, TLS everywhere. The SNS topic is not encrypted: CloudWatch
+  alarms and Budgets cannot publish to a topic using the AWS-managed `aws/sns`
+  key, and its messages carry only alarm names and states.
   Customer-managed KMS keys were rejected on cost (~$1/month each); Checkov
   `CKV_AWS_119` and similar are suppressed with that reason, inline.
 - **Logging**: an allow-list logger (`src/qmc/log.py`) emits only ids (request,
@@ -557,7 +567,7 @@ steady 100 jobs/day would.
 | DynamoDB | provisioned 20 RCU + 20 WCU across both tables and the GSI; storage < 100 MB (TTL 7 days) | 25 RCU, 25 WCU, 25 GB per account per region | 5 RCU/WCU |
 | SQS | idle long polling by the event-source mapping ≈ 0.26–0.65M requests (5 pollers shrinking to 2, 20 s waits) + jobs: 3,000 × (1 batch send + 10 receives + 10 deletes) ≈ 63k + `/system` reads | 1M | ~29% worst case |
 | KMS | 2 SecureString decrypts per api container per hour at most (secrets cached for 1 hour); worst case 5 warm containers all month ≈ 7,200; the health check itself never decrypts | 20,000 requests | ≥ 64% |
-| CloudWatch | 7 custom metrics (dimensions Environment + Function only; never a job id), 5 alarms watching 7 metrics (worker-errors and api-errors each sum two), 1 dashboard; logs well under 5 GB | 10 metrics, 10 alarm metrics, 3 dashboards, 5 GB logs | 3 metrics, 3 alarm metrics |
+| CloudWatch | 7 custom metrics (dimensions Environment + Function only; never a job id), 6 alarms watching 8 metrics (worker-errors and api-errors each sum two), 1 dashboard; logs well under 5 GB | 10 metrics, 10 alarm metrics, 3 dashboards, 5 GB logs | 3 metrics, 3 alarm metrics |
 | SNS | a handful of alarm publishes + emails | 1M publishes, 1,000 emails | |
 | EventBridge | scheduled rule, 8,640 invocations | scheduled rules are not charged | |
 | SSM Parameter Store | 2 standard parameters, standard throughput | no charge | |
@@ -565,9 +575,11 @@ steady 100 jobs/day would.
 | Budgets | 1 budget created by Terraform (+1 created in the console), alerts only, no budget actions | monitoring and alerts are free; only action-enabled budgets are charged after the first 2 | |
 
 Not used, because none is always-free: NAT gateways, load balancers, EC2, RDS,
-Secrets Manager, API Gateway, X-Ray, customer-managed KMS keys, Step Functions
+Secrets Manager, API Gateway, customer-managed KMS keys, Step Functions
 (the stretch would exceed its 4,000 free state transitions at this volume
-unless Express workflows are used).
+unless Express workflows are used). X-Ray does have an always-free tier; it is
+off to avoid extra IAM grants and an SDK dependency, and the structured logs
+carry ids and timings instead.
 
 **AWS Budgets is a backstop, not a limiter**: it evaluates spend a few times a
 day, so alerts arrive hours late and stop nothing. The real cost limiters are
@@ -594,6 +606,17 @@ nothing stubbed. Raw JSON lands in `bench/`.
 | `terraform apply` from empty | < 10 min | **85 s** for 39 resources, then a second plan with no drift; `terraform destroy` removed all 39 in 123 s with nothing left behind (2026-10-15, a throwaway stack in the same account; `bench/rebuild-2026-10-15.md`) |
 | Steady-state cost at 100 jobs/day | $0 | **≈ 13,000 GB-s/month** of 400,000 free, from measured billed durations (2026-10-15, `bench/results-gbs-*.json`); other services per the arithmetic above |
 
+The PRD's illustrative business metrics, against what was measured:
+
+| Metric | Target | Measured here |
+|---|---|---|
+| Idle cost | $0/month (vs ~$15/month for an always-on node) | $0 within the always-free allowances; about $0.0004/month for the S3 code bucket on accounts created after 15 July 2025 (see the cost section) |
+| Reproduce a past run | < 5 minutes | `POST /jobs/{id}/replay` recomputes the job; a 1M-path job completes in 0.58 s median, and `scripts/verify.py` re-checks a downloaded bundle offline |
+| New identical environment | one `terraform apply`, < 10 minutes | 85 s from empty for 39 resources |
+
+Qrypt usage: the dev stack's entropy ledger read 136 KiB used on 2026-10-17
+(1 KiB per job, ceiling 5,000 KiB), against the assessment budget of 10,240 KiB.
+
 ## Known constraints
 
 Where the PRD and this project's guardrails disagree, the guardrail wins and the
@@ -618,6 +641,7 @@ conflict is recorded here.
 | Always-free services only | Lambda, DynamoDB, SQS, SNS, CloudWatch, SSM | adds one private S3 bucket for the ~16 MB worker zip, because the AWS provider cannot upload a zip that large inline. S3 has no always-free tier: it is free for the first 12 months only on accounts created before 15 July 2025, and otherwise about $0.0004/month (covered by Free-plan credits), so "$0" holds with that footnote |
 | One stack per account | (not stated) | the free-tier arithmetic assumes one stack per account and region: a second stack doubles DynamoDB to 40 RCU/WCU (over the free 25) and the alarm and SQS polling counts. Use a separate account for a second environment, or destroy one first |
 | Replay window | replay any past run ("last quarter's") | the public-demo rules purge stored jobs after 7 days (DynamoDB TTL), so the API replays only jobs from roughly the last 7 days (TTL deletes can lag by up to two days). Older runs are replayed offline from a saved bundle with `scripts/verify.py`, which recomputes every shard. The job ids cited in `bench/` expire on the same schedule |
+| Deployment identity | (not stated) | CI deploys through the GitLab OIDC role with no stored keys, but the applies run during development used a dedicated IAM user, `qrypt-mc-deployer`, with a long-lived access key and a customer-managed policy scoped like the CI role (`qmc-*` in `us-east-1`). Its key is deactivated after grading, together with the API key rotation |
 
 Other constraints:
 

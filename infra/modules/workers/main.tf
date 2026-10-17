@@ -153,8 +153,8 @@ resource "aws_lambda_function" "worker" {
   #checkov:skip=CKV_AWS_117:No VPC: the function only calls AWS APIs; a VPC would need a NAT gateway or endpoints, neither free.
   #checkov:skip=CKV_AWS_116:Failed shard messages already go to the SQS DLQ via the queue's redrive policy (async DLQ does not apply to SQS event sources).
   #checkov:skip=CKV_AWS_173:Environment variables hold names and limits only, never secrets; a CMK would cost ~$1/month.
-  #checkov:skip=CKV_AWS_272:Code signing needs AWS Signer profiles and adds a paid-tier dependency; zips are built reproducibly in CI instead.
-  #checkov:skip=CKV_AWS_50:X-Ray tracing is off to keep the free-tier arithmetic simple; structured logs carry job_id and timings.
+  #checkov:skip=CKV_AWS_272:Not enabled: it needs a Signer profile and a signing step. Integrity rests on deploys only from the main-branch OIDC role, plus source_code_hash.
+  #checkov:skip=CKV_AWS_50:X-Ray is off to avoid extra IAM grants and an SDK dependency; structured logs carry job_id and timings.
   function_name                  = "${var.name}-worker"
   role                           = aws_iam_role.worker.arn
   runtime                        = "python3.13"
@@ -242,8 +242,8 @@ resource "aws_lambda_function" "reconciler" {
   #checkov:skip=CKV_AWS_117:No VPC: the function only calls AWS APIs; a VPC would need a NAT gateway or endpoints, neither free.
   #checkov:skip=CKV_AWS_116:Scheduled and idempotent; a missed run is picked up by the next one five minutes later.
   #checkov:skip=CKV_AWS_173:Environment variables hold names only, never secrets; a CMK would cost ~$1/month.
-  #checkov:skip=CKV_AWS_272:Code signing needs AWS Signer profiles; zips are built reproducibly in CI instead.
-  #checkov:skip=CKV_AWS_50:X-Ray tracing is off to keep the free-tier arithmetic simple.
+  #checkov:skip=CKV_AWS_272:Not enabled: it needs a Signer profile and a signing step. Integrity rests on deploys only from the main-branch OIDC role, plus source_code_hash.
+  #checkov:skip=CKV_AWS_50:X-Ray is off to avoid extra IAM grants and an SDK dependency; the reconciler logs each run.
   #checkov:skip=CKV_AWS_115:Concurrency is bounded by the 5-minute schedule; reserving it would only consume account quota.
   function_name = "${var.name}-reconciler"
   role          = aws_iam_role.reconciler.arn

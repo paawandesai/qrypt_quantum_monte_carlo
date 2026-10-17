@@ -35,6 +35,8 @@ def load_env() -> None:
 
 
 def call(method: str, path: str, body=None, timeout: float = 30) -> tuple[int, dict, dict, float]:
+    if not os.environ.get("QMC_API_URL") or not os.environ.get("QMC_API_KEY"):
+        raise SystemExit("set QMC_API_URL and QMC_API_KEY (environment or .env) first")
     base = os.environ["QMC_API_URL"].rstrip("/")
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(  # noqa: S310 - URL from operator config
@@ -49,6 +51,8 @@ def call(method: str, path: str, body=None, timeout: float = 30) -> tuple[int, d
             raw, status, headers = r.read(), r.status, dict(r.headers)
     except urllib.error.HTTPError as e:
         raw, status, headers = e.read(), e.code, dict(e.headers)
+    except urllib.error.URLError as e:
+        raise SystemExit(f"could not reach {base}: {e.reason}") from None
     elapsed = time.perf_counter() - t0
     try:
         doc = json.loads(raw)
