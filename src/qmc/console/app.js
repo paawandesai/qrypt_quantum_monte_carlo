@@ -1,4 +1,4 @@
-// Qrypt MC console: static, no framework, no third-party code or analytics.
+// Monte Carlo console: static, no framework, no third-party code or analytics.
 // The API key lives in sessionStorage for this tab only and is sent only as an
 // Authorization header to this same origin. It never goes in a URL or a log.
 "use strict";
