@@ -14,6 +14,9 @@ export QMC_API_URL=https://tiszf5ypkbkclttornac5wabgu0lscrt.lambda-url.us-east-1
 read -rs QMC_API_KEY && export QMC_API_KEY    # paste the key; it is not echoed
 python3 scripts/qmc_cli.py submit --paths 1000000 --shards 10 --wait
 ```
+
+On macOS with a python.org Python, run its "Install Certificates.command" once
+or the HTTPS call fails certificate checks; on Windows use WSL.
 The stack stays up through grading, then is destroyed and the key rotated.
 
 **Demo video:** _(link added with the submission)_
@@ -29,7 +32,7 @@ dev stack in `us-east-1`, with reserved concurrency in place (worker 10, api 5)
 and `terraform plan` showing no drift. The 1M-path job, replay, latency and
 wall-clock benchmarks were re-measured there on 2026-10-16 with the reservations
 on; the fail-closed test passed, and after the last change to deployed code
-(main 7978c46; later commits touch only docs and tests) a fresh job, its replay
+(main 7978c46; later commits touch only docs, tests and one Terraform output description) a fresh job, its replay
 and a fault-injection run were checked live, and the `shard-failures` and
 `dlq-depth` alarm emails arrived (`bench/deployed-checks-2026-10-16-mr9.md`).
 
@@ -213,7 +216,11 @@ for the fault-injection applies below, adding `-var enable_fault_injection=true`
 to the plan:
 
 ```bash
-mask() { sed -u -E -e 's/[0-9]{12}/XXXXXXXXXXXX/g' -e "s/${TF_VAR_alarm_email}/you@example.com/g"; }
+# line-buffered sed (-u on GNU/Linux, -l on macOS); the email is escaped so
+# a "+" or "." in it is matched literally
+mask() { b=-u; sed --version >/dev/null 2>&1 || b=-l
+  e=$(printf '%s' "$TF_VAR_alarm_email" | sed 's/[]\/.+*?^$(){}|[]/\\&/g')
+  sed "$b" -E -e 's/[0-9]{12}/XXXXXXXXXXXX/g' -e "s/${e:-^$}/you@example.com/g"; }
 terraform -chdir=infra plan -out=demo.tfplan 2>&1 | mask
 terraform -chdir=infra apply demo.tfplan 2>&1 | mask
 ```
@@ -227,10 +234,17 @@ off again. If you deployed with the `-1` reservation flags and no
 `terraform.tfvars`, add them to both applies:
 
 ```bash
-terraform -chdir=infra apply -var enable_fault_injection=true
+terraform -chdir=infra plan -var enable_fault_injection=true -out=demo.tfplan 2>&1 | mask
+terraform -chdir=infra apply demo.tfplan 2>&1 | mask
 python scripts/qmc_cli.py submit --paths 1000 --shards 2 --fail-shards 0 --wait   # ends PARTIAL
-terraform -chdir=infra apply                 # fault injection back off
+terraform -chdir=infra plan -out=demo.tfplan 2>&1 | mask      # fault injection back off
+terraform -chdir=infra apply demo.tfplan 2>&1 | mask && rm demo.tfplan
 ```
+
+**In a 5-minute video**: the `dlq-depth` alarm took 351 s from submit in the
+measured run, so submit the failing job a few minutes before that part of the
+recording (or cut), then show the job `PARTIAL`, the DLQ depth in `/system`,
+and the alarm email.
 
 The shard is received 5 times before it reaches the DLQ. After each failure the
 worker releases the message after 10, 20, 30, 40 and 50 s, so it lands in the
@@ -242,7 +256,6 @@ purged; purge it before a second recording or no new notification is sent:
 ```bash
 aws sqs purge-queue --region us-east-1 --queue-url "$(terraform -chdir=infra output -raw dlq_url)"
 ```
-
 
 The bearer key is read from SSM by whoever deployed the stack; it is never
 printed in this README, in Terraform outputs or in logs.
@@ -540,7 +553,7 @@ nothing stubbed. Raw JSON lands in `bench/`.
 
 | Target | Value | Result |
 |---|---|---|
-| Submit latency, warm, 50 submissions | < 800 ms p95 | **623.6 ms p95**, 353.2 ms p50, 729.3 ms max; first request 699.3 ms. 48 of 50 accepted: Qrypt answered one submit with a 503 and timed out on another, and both were rejected fail-closed with `entropy_unavailable` and their cause (2026-10-16, reservations on, client in a us-east cloud container; `bench/results-latency-20261016T173906Z.json`). The 2026-10-14 run without reservations: 619.8 ms p95, 50 of 50 accepted |
+| Submit latency, warm, 50 submissions | < 800 ms p95 | **623.6 ms p95**, 353.2 ms p50, 729.3 ms max over accepted submits (the one Qrypt timeout took 5.7 s before its 504); first request 699.3 ms. 48 of 50 accepted: Qrypt answered one submit with a 503 and timed out on another, and both were rejected fail-closed with `entropy_unavailable` and their cause (2026-10-16, reservations on, client in a us-east cloud container; `bench/results-latency-20261016T173906Z.json`). The 2026-10-14 run without reservations: 619.8 ms p95, 50 of 50 accepted |
 | 1M paths submit → `COMPLETE`, 5 runs | < 60 s | **0.58 s median**, 1.12 s max; all 5 `COMPLETE`, all within 3 SE of Black-Scholes (worst z = 1.39) (2026-10-16, reservations on; `bench/results-wallclock-20261016T174021Z.json`). The 2026-10-14 run without reservations: 1.07 s median |
 | `terraform apply` from empty | < 10 min | **85 s** for 39 resources, then a second plan with no drift; `terraform destroy` removed all 39 in 123 s with nothing left behind (2026-10-15, a throwaway stack in the same account; `bench/rebuild-2026-10-15.md`) |
 | Steady-state cost at 100 jobs/day | $0 | **≈ 13,000 GB-s/month** of 400,000 free, from measured billed durations (2026-10-15, `bench/results-gbs-*.json`); other services per the arithmetic above |

@@ -5,6 +5,8 @@
 | Tool | Model and version | Used for |
 |---|---|---|
 | Claude Code (cloud session, inside a Claude project) | Anthropic Claude Opus 5.5 (`claude-opus-5-5`, 1M context) | design plan, all application code, tests, Terraform, CI configuration, scripts, README and this file |
+| Claude Docs (inside the same project) | the same model | the design and build plan document (outside the repo) |
+| Claude Design (inside the same project) | the same model | the web console's layout and visual design, on the candidate's Forge design system, before it was built in vanilla HTML/CSS/JS |
 
 The candidate (Paawan) directed the work, set the guardrails, made the design
 decisions listed below, and reviewed the output (README and this file on
