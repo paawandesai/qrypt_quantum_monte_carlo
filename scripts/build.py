@@ -33,7 +33,7 @@ def numpy_pin() -> str:
     for line in (ROOT / "requirements-worker.txt").read_text().splitlines():
         line = line.split("#")[0].strip()
         if line.startswith("numpy=="):
-            return line.split("==")[1]
+            return line.split("==")[1].split()[0]
     raise SystemExit("numpy pin not found in requirements-worker.txt")
 
 
@@ -93,9 +93,11 @@ def main() -> None:
                 PY_VERSION,
                 "--implementation",
                 "cp",
+                "--require-hashes",
                 "--target",
                 str(deps),
-                f"numpy=={pin}",
+                "-r",
+                str(ROOT / "requirements-worker.txt"),
             ],
             check=True,
         )

@@ -78,9 +78,36 @@ flowchart LR
   budget[AWS Budget $1/month] --> sns
 ```
 
-Not drawn, to keep the picture readable: the three IAM roles and their inline
-policies, the Lambda permissions, the queue and topic policies, and the S3
-bucket's sub-resources. The table below lists every resource Terraform creates.
+Permissions (each function has its own role with one inline policy; every
+grant names a specific table, queue, parameter or log group):
+
+```mermaid
+flowchart LR
+  subgraph roles[IAM roles, one per function]
+    rapi[api role]
+    rw[worker role]
+    rrec[reconciler role]
+  end
+  rapi -- "Get/Put/UpdateItem, Query" --> jobs[(jobs table + by_status)]
+  rapi -- "DescribeTable" --> shards[(shards table)]
+  rapi -- "SendMessage" --> q[[shards queue]]
+  rapi -- "GetQueueAttributes" --> dlq[[DLQ]]
+  rapi -- "GetParameter" --> ssm[(2 SSM parameters)]
+  rw -- "Receive/Delete/ChangeMessageVisibility,<br/>GetQueueAttributes" --> q
+  rw -- "PutItem, Query" --> shards
+  rw -- "GetItem, UpdateItem" --> jobs
+  rrec -- "GetItem, UpdateItem, Query" --> jobs
+  rrec -- "Query" --> shards
+  rapi & rw & rrec -- "CreateLogStream, PutLogEvents" --> logs[own log group]
+  urlperm["2 Lambda permissions<br/>(public URL invoke, bearer key checked in code)"] --> api[api Lambda]
+  ebperm["Lambda permission<br/>(EventBridge rule only)"] --> rec[reconciler Lambda]
+  q -- "redrive policy, maxReceiveCount 5" --> dlq
+  topicpol["SNS topic policy<br/>(CloudWatch and Budgets may Publish)"] --> sns[SNS alerts]
+```
+
+The S3 code bucket's four sub-resources (public access block, encryption,
+lifecycle, the worker.zip object) are not drawn. The table below lists every
+resource Terraform creates.
 
 Terraform layout (`infra/`): one root module and five child modules.
 
@@ -570,7 +597,7 @@ conflict is recorded here.
 
 | Topic | PRD asks | This build does, and why |
 |---|---|---|
-| IAM wildcards | no `*` actions or resources | No `*` Action and no bare `*` Resource in the three function roles. Two wildcard **principals** on the Function URL permissions, which AWS requires for `AuthType=NONE`, both condition-scoped (above). The CI deploy role (`infra/bootstrap/`) is scoped by the `qmc-` name prefix, with these exceptions: two read-only `Resource: "*"` grants AWS cannot scope, `logs:DescribeLogGroups` (a list call) and `lambda:GetEventSourceMapping` (after a mapping is deleted, Terraform polls for it and Lambda authorizes the lookup of a missing mapping against `*`; with the type-scoped ARN the poll got AccessDenied and `destroy` failed, rehearsed 2026-10-15); and Get, Update, Delete and tagging of event-source mappings on the type-scoped ARN `event-source-mapping:*`, because only Create carries a function ARN to condition on. Its IAM rights cover only roles named `qmc-*-api`, `qmc-*-worker` and `qmc-*-reconciler`, and an explicit deny stops it editing its own role; it can still change those function roles' policies, which a permissions boundary would close (not built). Checkov `CKV_AWS_356` is suppressed inline with the reason |
+| IAM wildcards | no `*` actions or resources | No `*` Action and no bare `*` Resource in the three function roles. Two wildcard **principals** on the Function URL permissions, which AWS requires for `AuthType=NONE`, both condition-scoped (above). The CI deploy role (`infra/bootstrap/`) is scoped by the `qmc-` name prefix, with these exceptions: two read-only `Resource: "*"` grants AWS cannot scope, `logs:DescribeLogGroups` (a list call) and `lambda:GetEventSourceMapping` (after a mapping is deleted, Terraform polls for it and Lambda authorizes the lookup of a missing mapping against `*`; with the type-scoped ARN the poll got AccessDenied and `destroy` failed, rehearsed 2026-10-15); and Get, Update, Delete and tagging of event-source mappings on the type-scoped ARN `event-source-mapping:*`, because only Create carries a function ARN to condition on. Its IAM rights cover only roles named `qmc-*-api`, `qmc-*-worker` and `qmc-*-reconciler`, and an explicit deny stops it editing its own role; it can still change those function roles' policies and, through `iam:CreateRole` and `iam:UpdateAssumeRolePolicy` on the same names, their trust policies, so a pipeline on `main` could create or edit a `qmc-*-api` role that another AWS account can assume. Only Maintainers can run pipelines on `main`. Creating the three function roles in `infra/bootstrap/` with a fixed Lambda trust, or a permissions boundary, would close this (not built). Checkov `CKV_AWS_356` is suppressed inline with the reason |
 | IaC scanner | Checkov or tfsec | Checkov; tfsec is deprecated into Trivy |
 | API auth | `AWS_IAM` or bearer key | bearer key, described as an application-layer key check on a public endpoint that still invokes and bills |
 | Health endpoint | checks DynamoDB and SSM reachability | `DescribeTable` on both tables and `GetParameter` with `WithDecryption=false` on the API key parameter (SSM returns the value still encrypted, so no KMS request and no plaintext); `503` if either fails. Also reports configuration and last-success times |
@@ -631,6 +658,9 @@ Other constraints:
 - It does not authenticate users individually: one shared bearer key gates the API.
 - It does not make AWS bills impossible; it bounds them and alerts late.
 - It is not compliant with any regulatory regime and holds synthetic parameters only.
+  Prices are illustrative, not investment advice, and not for production use.
+- It is an independent assessment project, not affiliated with or endorsed by
+  Qrypt or AWS. Qrypt and AWS are trademarks of their owners.
 
 ## Repository layout and development
 

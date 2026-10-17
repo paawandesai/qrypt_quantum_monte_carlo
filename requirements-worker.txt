@@ -1,3 +1,5 @@
 # Packaged into the worker Lambda (arm64, Python 3.13). Pinned: the numpy
 # version is part of the replay fingerprint, so changing it changes results.
-numpy==2.5.4
+# The hash is the cp313 manylinux aarch64 wheel's sha256 from PyPI; build.py
+# installs with --require-hashes, so a tampered or substituted wheel fails the build.
+numpy==2.5.4 --hash=sha256:1c2e71b04c6cad90026e544501bbe0ab9290fa8a4d845e7e8c0d124fb429c988

@@ -10,8 +10,8 @@
 
 The candidate (Paawan) directed the work, set the guardrails, made the design
 decisions listed below, and reviewed the output (README and this file on
-2026-10-17). Commits made by the assistant carry a `Co-Authored-By: Claude`
-trailer.
+2026-10-17). Every non-merge commit carries a `Co-Authored-By: Claude`
+trailer, including the few committed under the candidate's name.
 
 ## Inputs that materially shaped the solution
 
