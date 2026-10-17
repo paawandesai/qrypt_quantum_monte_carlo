@@ -1,14 +1,14 @@
 # Licenses
 
 Audit run with `pip-licenses --from=mixed` (re-run before submission; CI's
-`license-audit` job regenerates it and fails on GPL/AGPL, with partial matching so "GPLv2", "GPLv3+" and SPDX ids are caught too). Last run: 2026-10-15.
+`license-audit` job regenerates it and fails on GPL/AGPL, with partial matching so "GPLv2", "GPLv3+" and SPDX ids are caught too). That job reads pip metadata only, so libraries vendored inside a wheel (numpy's, below) were checked by hand from the built zip. Last run: 2026-10-15; vendored libraries checked 2026-10-17.
 `pip-licenses` leaves itself and its own dependencies out of its report by default; they are dev-only and checked by hand: pip-licenses 5.5.5 (MIT), prettytable 3.18.0 (BSD-3-Clause), wcwidth 0.9.2 (MIT).
 
 ## Packaged into Lambda
 
 | Package | Version | License | Where |
 |---|---|---|---|
-| numpy | 2.5.4 | BSD-3-Clause (bundled parts: 0BSD, MIT, Zlib, CC0-1.0) | worker.zip |
+| numpy | 2.5.4 | BSD-3-Clause (bundled parts: 0BSD, MIT, Zlib, CC0-1.0). The arm64 wheel also vendors two native libraries in `numpy.libs/`: OpenBLAS (BSD-3-Clause) and libgfortran (GPL-3.0-or-later WITH GCC-exception-3.1; the GCC Runtime Library Exception permits use by non-GPL programs). Their license texts ship inside numpy's `dist-info/licenses/LICENSE.txt` in the zip | worker.zip |
 | boto3 / botocore | runtime-provided | Apache-2.0 | provided by the AWS Lambda Python 3.13 runtime, not bundled |
 
 The api and reconciler zips contain only this repository's code.
@@ -17,7 +17,7 @@ The api and reconciler zips contain only this repository's code.
 
 | Tool | Version | License | Note |
 |---|---|---|---|
-| Terraform | 1.16.6 | BSL 1.1 | Acceptable for this use (we do not offer Terraform as a competing hosted product). OpenTofu is a drop-in if an OSI-only policy applies. |
+| Terraform | 1.16.6 | BUSL-1.1 | Acceptable for this use (we do not offer Terraform as a competing hosted product). OpenTofu is a drop-in if an OSI-only policy applies. |
 | hashicorp/aws provider | 6.69.0 | MPL-2.0 | |
 | tflint | 0.59.1 | MPL-2.0 | |
 | Checkov | 3.3.29 | Apache-2.0 | IaC scanner (tfsec is deprecated into Trivy, so not used) |
