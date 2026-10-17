@@ -55,6 +55,12 @@ def test_api_key_unavailable_fails_closed(aws):
     assert status == 503 and body["error"] == "api_key_unavailable"
 
 
+def test_empty_stored_key_fails_closed(aws):
+    app = make_app(secrets=FakeSecrets(values={TEST_ENV["API_KEY_PARAM"]: ""}))
+    status, body, _ = call(app, "GET", "/jobs", key="")
+    assert status == 503 and body["error"] == "api_key_unavailable"
+
+
 def test_submit_creates_queued_job_with_seed_and_provenance(aws):
     mock = MockQrypt(request_id="qr-42")
     app = make_app(entropy=mock)

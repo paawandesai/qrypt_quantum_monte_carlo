@@ -301,3 +301,25 @@ def test_shard_write_is_conditional_so_a_redelivery_is_a_no_op(env, capsys):
     store = env["store"]
     item = {"job_id": body["job_id"], "shard_index": 0, "n": 1}
     assert store.put_shard(item) is False  # already written by the worker
+
+
+def test_queue_error_mid_enqueue_marks_job_partial_not_orphaned(env, monkeypatch):
+    from botocore.exceptions import ClientError
+
+    app = make_app()
+    real = app.store.sqs.send_message_batch
+    calls = {"n": 0}
+
+    def flaky(**kw):
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise ClientError({"Error": {"Code": "ThrottlingException"}}, "SendMessageBatch")
+        return real(**kw)
+
+    monkeypatch.setattr(app.store.sqs, "send_message_batch", flaky)
+    status, body = submit(app, body=dict(STD, paths=20_000, shards=20))
+    assert status == 202
+    run_workers(env)
+    job = get(app, body["job_id"])
+    assert job["status"] == "PARTIAL"
+    assert job["failed_shard_indexes"] == list(range(10, 20))
