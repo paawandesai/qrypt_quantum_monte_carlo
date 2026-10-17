@@ -37,7 +37,8 @@ passed, and a fault-injection run was checked live, with the `shard-failures`
 and `dlq-depth` alarm emails arriving (`bench/deployed-checks-2026-10-16-mr9.md`).
 The 2026-10-17 changes (input edge cases, console wording) were applied the same
 day, and a fresh 1M-path job and its bit-identical replay were checked live
-after each apply.
+after each apply; one of those jobs is saved as
+`bench/bundle-2cc29f825a53e7360fe39b27343f9ac6.json`.
 
 ## Contents
 
@@ -50,6 +51,7 @@ after each apply.
 - [Security](#security)
 - [Cost: the $0 arithmetic](#cost-the-0-arithmetic)
 - [Benchmarks](#benchmarks)
+- [During grading (shared limits and owner runbook)](#during-grading-shared-limits-and-owner-runbook)
 - [Known constraints](#known-constraints)
 - [What this system does not do](#what-this-system-does-not-do)
 - [Repository layout and development](#repository-layout-and-development)
@@ -319,8 +321,9 @@ Input limits: `paths ≤ 10,000,000`, `shards ≤ 100`, `paths/shards ≤ 2,000,
 `0 < T ≤ 50`, `0 < S0, K ≤ 1e6`, `-1 ≤ r ≤ 1`, `paths ≥ 2` (a standard error
 needs two samples), and any non-zero number smaller than 1e-100 in magnitude is
 rejected (DynamoDB cannot store it); these are fixed in `src/qmc/params.py`.
-Every type and range violation is listed in the 400 body; missing or unknown
-fields are reported first, on their own.
+Every unknown field and every type and range violation is listed in the 400
+body; missing required fields are reported on their own, before values are
+checked.
 
 ## Web console
 
@@ -514,7 +517,11 @@ That is one job, not a proof for every host.
   key check on a public endpoint**: the handler compares the bearer key in
   constant time, rejects bodies over 4 KB before parsing, and serves only the
   static console without a key. Unauthenticated calls still invoke (and bill)
-  the function; reserved concurrency 5 is the only throttle a Function URL has.
+  the function; reserved concurrency 5 is the only throttle a Function URL has, and it caps
+  parallelism, not the request rate. A sustained flood of 100 requests per
+  second would cost roughly $2 a day once the free tier is used up ($0.20 per
+  million requests plus a few milliseconds of duration each); the budget alert
+  detects this, it does not prevent it. The owner runbook below has the stop switch.
   `AWS_IAM` auth was rejected because a browser console cannot sign SigV4
   requests without adding Cognito. Checkov `CKV_AWS_258` is suppressed with that reason.
 - **IAM**: one role per function, each limited to its own table, index, queue,
@@ -603,7 +610,7 @@ nothing stubbed. Raw JSON lands in `bench/`.
 |---|---|---|
 | Submit latency, warm, 50 submissions | < 800 ms p95 | **623.6 ms p95**, 353.2 ms p50, 729.3 ms max over accepted submits (the one Qrypt timeout took 5.7 s before its 504); first request 699.3 ms. 48 of 50 accepted: Qrypt answered one submit with a 503 and timed out on another, and both were rejected fail-closed with `entropy_unavailable` and their cause (2026-10-16, reservations on, client in a us-east cloud container; `bench/results-latency-20261016T173906Z.json`). The 2026-10-14 run without reservations: 619.8 ms p95, 50 of 50 accepted |
 | 1M paths submit → `COMPLETE`, 5 runs | < 60 s | **0.58 s median**, 1.12 s max; all 5 `COMPLETE`, all within 3 SE of Black-Scholes (worst z = 1.39) (2026-10-16, reservations on; `bench/results-wallclock-20261016T174021Z.json`). The 2026-10-14 run without reservations: 1.07 s median |
-| `terraform apply` from empty | < 10 min | **85 s** for 39 resources, then a second plan with no drift; `terraform destroy` removed all 39 in 123 s with nothing left behind (2026-10-15, a throwaway stack in the same account; `bench/rebuild-2026-10-15.md`) |
+| `terraform apply` from empty | < 10 min | **85 s** for 39 resources (the stack then; one alarm added since, now 40), then a second plan with no drift; `terraform destroy` removed all 39 in 123 s with nothing left behind (2026-10-15, a throwaway stack in the same account; `bench/rebuild-2026-10-15.md`) |
 | Steady-state cost at 100 jobs/day | $0 | **≈ 13,000 GB-s/month** of 400,000 free, from measured billed durations (2026-10-15, `bench/results-gbs-*.json`); other services per the arithmetic above |
 
 The PRD's illustrative business metrics, against what was measured:
@@ -612,10 +619,41 @@ The PRD's illustrative business metrics, against what was measured:
 |---|---|---|
 | Idle cost | $0/month (vs ~$15/month for an always-on node) | $0 within the always-free allowances; about $0.0004/month for the S3 code bucket on accounts created after 15 July 2025 (see the cost section) |
 | Reproduce a past run | < 5 minutes | `POST /jobs/{id}/replay` recomputes the job; a 1M-path job completes in 0.58 s median, and `scripts/verify.py` re-checks a downloaded bundle offline |
-| New identical environment | one `terraform apply`, < 10 minutes | 85 s from empty for 39 resources |
+| New identical environment | one `terraform apply`, < 10 minutes | 85 s from empty for 39 resources (2026-10-15; 40 now) |
 
 Qrypt usage: the dev stack's entropy ledger read 136 KiB used on 2026-10-17
 (1 KiB per job, ceiling 5,000 KiB), against the assessment budget of 10,240 KiB.
+
+## During grading (shared limits and owner runbook)
+
+Graders share one key and one stack, so these limits are shared too:
+
+- **Submits**: 14 per 10 s across everyone (below Qrypt's 30); the 15th gets
+  `429 rate_limited` with `Retry-After`. Don't loop `scripts/bench.py` against
+  this deployment.
+- **Replays**: 100 per UTC day across everyone; then `429 replay_limit_reached`
+  until 00:00 UTC.
+- **Entropy**: each valid submit that passes the rate limiter spends 1 KiB of a
+  lifetime ceiling of 5,000 KiB (`GET /system` shows what is left); at the
+  ceiling, submits get `409 entropy_ceiling_reached` while reads and replays
+  keep working.
+- **Retention**: jobs expire 7 days after they are created.
+  `bench/bundle-2cc29f825a53e7360fe39b27343f9ac6.json` is a saved 1M-path job
+  (2026-10-17) that `python scripts/verify.py` recomputes offline, bit for bit,
+  after the live copy has expired.
+- **Heavy load** slows jobs (DynamoDB write capacity is the bottleneck) and can
+  end at worst in `PARTIAL`; it never produces a wrong `COMPLETE`.
+
+Owner runbook:
+
+| Situation | What to do |
+|---|---|
+| Entropy ceiling reached | Check the real remaining allotment in the Qrypt portal, raise `entropy_ceiling_kib` in `infra/variables.tf` (staying under it), merge to `main` and apply; it is a Lambda environment variable, so it takes effect on the next request. A rebuilt stack starts its ledger at 0, so set the ceiling to what Qrypt has left |
+| Replay cap reached | Wait for 00:00 UTC, or delete that day's `#qrypt-rate#replay-YYYY-MM-DD` item from the jobs table |
+| `dlq-depth` alarm | It stays in ALARM while the DLQ holds a message, so a later incident sends no new email: inspect the message, then purge the DLQ (command in the quick-start) |
+| Key shared too widely | Overwrite `/qrypt-mc/api-key` and make any function configuration change (see Security) |
+| Flood of requests to the public URL | `aws lambda put-function-concurrency --region us-east-1 --function-name qmc-dev-api --reserved-concurrent-executions 0` stops every request (the console too); `terraform apply` from `main` restores it |
+| Until grading ends | Don't change numpy, the architecture or the algorithm version: every stored job would then refuse replay with `409 runtime_mismatch` |
 
 ## Known constraints
 
@@ -624,7 +662,7 @@ conflict is recorded here.
 
 | Topic | PRD asks | This build does, and why |
 |---|---|---|
-| IAM wildcards | no `*` actions or resources | No `*` Action and no bare `*` Resource in the three function roles. Two wildcard **principals** on the Function URL permissions, which AWS requires for `AuthType=NONE`, both condition-scoped (above). The CI deploy role (`infra/bootstrap/`) is scoped by the `qmc-` name prefix, with these exceptions: two read-only `Resource: "*"` grants AWS cannot scope, `logs:DescribeLogGroups` (a list call) and `lambda:GetEventSourceMapping` (after a mapping is deleted, Terraform polls for it and Lambda authorizes the lookup of a missing mapping against `*`; with the type-scoped ARN the poll got AccessDenied and `destroy` failed, rehearsed 2026-10-15); and Get, Update, Delete and tagging of event-source mappings on the type-scoped ARN `event-source-mapping:*`, because only Create carries a function ARN to condition on. Its IAM rights cover only roles named `qmc-*-api`, `qmc-*-worker` and `qmc-*-reconciler`, and an explicit deny stops it editing its own role; it can still change those function roles' policies and, through `iam:CreateRole` and `iam:UpdateAssumeRolePolicy` on the same names, their trust policies, so a pipeline on `main` could create or edit a `qmc-*-api` role that another AWS account can assume. Only Maintainers can run pipelines on `main`. Creating the three function roles in `infra/bootstrap/` with a fixed Lambda trust, or a permissions boundary, would close this (not built). Checkov `CKV_AWS_356` is suppressed inline with the reason |
+| IAM wildcards | no `*` actions or resources | No `*` Action and no bare `*` Resource in the three function roles. Two wildcard **principals** on the Function URL permissions, which AWS requires for `AuthType=NONE`, both condition-scoped (above). The CI deploy role (`infra/bootstrap/`) is scoped by the `qmc-` name prefix, with these exceptions: two read-only `Resource: "*"` grants AWS cannot scope, `logs:DescribeLogGroups` (a list call) and `lambda:GetEventSourceMapping` (after a mapping is deleted, Terraform polls for it and Lambda authorizes the lookup of a missing mapping against `*`; with the type-scoped ARN the poll got AccessDenied and `destroy` failed, rehearsed 2026-10-15); and Get, Update, Delete and tagging of event-source mappings on the type-scoped ARN `event-source-mapping:*`, because only Create carries a function ARN to condition on. Its IAM rights cover only roles named `qmc-*-api`, `qmc-*-worker` and `qmc-*-reconciler`, and an explicit deny stops it editing its own role; it can still change those function roles' policies (so a pipeline on `main` could give a `qmc-*-api` role any permission, in effect account admin, and run code with it) and, through `iam:CreateRole` and `iam:UpdateAssumeRolePolicy` on the same names, their trust policies, so a pipeline on `main` could create or edit a `qmc-*-api` role that another AWS account can assume. Only Maintainers can run pipelines on `main`. Creating the three function roles in `infra/bootstrap/` with a fixed Lambda trust, or a permissions boundary, would close this (not built). Checkov `CKV_AWS_356` is suppressed inline with the reason |
 | IaC scanner | Checkov or tfsec | Checkov; tfsec is deprecated into Trivy |
 | API auth | `AWS_IAM` or bearer key | bearer key, described as an application-layer key check on a public endpoint that still invokes and bills |
 | Health endpoint | checks DynamoDB and SSM reachability | `DescribeTable` on both tables and `GetParameter` with `WithDecryption=false` on the API key parameter (SSM returns the value still encrypted, so no KMS request and no plaintext); `503` if either fails. Also reports configuration and last-success times |

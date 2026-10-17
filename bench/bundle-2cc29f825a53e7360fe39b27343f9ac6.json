@@ -1,0 +1,44 @@
+{
+  "bundle_version": 1,
+  "job_id": "2cc29f825a53e7360fe39b27343f9ac6",
+  "params": {
+    "K": 100,
+    "S0": 100,
+    "T": 1,
+    "paths": 1000000,
+    "r": 0.05,
+    "shards": 10,
+    "sigma": 0.2
+  },
+  "master_seed_hex": "599d99be216463c8e89d987a5c01aad3d5a721f032809c5f870bea8a904e844f",
+  "entropy": {
+    "block_sha256": "2fe0e03d15993f4fc4f5e17051599e762d4cf9b25152a667fef21118f590e80a",
+    "derivation": "sha256('qmc/master-seed/v1' || qrypt_block) -> numpy SeedSequence spawn_key=(i,)",
+    "endpoint_host": "api-eus.qrypt.com",
+    "fetched_at": "2026-10-17T19:47:24.617671Z",
+    "kib": 1,
+    "ledger_kib_after": 136,
+    "qrypt_request_id": null,
+    "source": "qrypt"
+  },
+  "runtime_expected": {
+    "algo_version": "eu-call-gbm/v1 pcg64 standard_normal chunk=262144 np.sum+fsum",
+    "arch": "arm64",
+    "numpy_version": "2.5.4"
+  },
+  "result": {
+    "black_scholes": "10.450583572185565",
+    "ci_high": "10.488137845341754",
+    "ci_high_hex": "0x1.4f9ed34235d90p+3",
+    "ci_low": "10.430351999543454",
+    "ci_low_hex": "0x1.4dc5718e79d5cp+3",
+    "estimate": "10.459244922442604",
+    "estimate_hex": "0x1.4eb2226857d76p+3",
+    "n": 1000000,
+    "std_error": "0.01474155807303316",
+    "std_error_hex": "0x1.e30d26e86ae55p-7",
+    "z_vs_black_scholes": "0.5875464597520172"
+  },
+  "status": "COMPLETE",
+  "verify": "python scripts/verify.py bundle.json"
+}

@@ -309,6 +309,8 @@ plan:
   artifacts:
     paths: [infra/plan.tfplan]
     expire_in: 1 day
+    # The plan holds the alarm email and account ID; only maintainers may download it.
+    access: maintainer
 
 apply:
   extends: .aws
