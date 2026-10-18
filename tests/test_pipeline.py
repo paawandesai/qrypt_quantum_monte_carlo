@@ -323,3 +323,53 @@ def test_queue_error_mid_enqueue_marks_job_partial_not_orphaned(env, monkeypatch
     job = get(app, body["job_id"])
     assert job["status"] == "PARTIAL"
     assert job["failed_shard_indexes"] == list(range(10, 20))
+
+
+def test_reconciler_error_fails_the_invocation_after_trying_every_job(env, monkeypatch):
+    app = make_app()
+    _, a = submit(app)
+    _, b = submit(app, body=dict(STD, paths=200_002))
+    past = ids.iso(ids.plus(ids.now(), -60))
+    for jid in (a["job_id"], b["job_id"]):
+        env["store"].jobs.update_item(
+            Key={"job_id": jid}, UpdateExpression="SET deadline_at = :d", ExpressionAttributeValues={":d": past}
+        )
+    seen = []
+    real = reconciler.finalize
+
+    def flaky(store, job_id, **kw):
+        seen.append(job_id)
+        if job_id == a["job_id"]:
+            raise RuntimeError("AccessDenied")
+        return real(store, job_id, **kw)
+
+    monkeypatch.setattr(reconciler, "finalize", flaky)
+    with pytest.raises(RuntimeError, match="1 job"):
+        reconciler.run(env["store"])
+    assert sorted(seen) == sorted([a["job_id"], b["job_id"]])  # the other job was still finalized
+    assert get(app, b["job_id"])["status"] == "PARTIAL"
+
+
+def test_network_error_mid_enqueue_marks_job_partial_and_counts_an_api_error(env, monkeypatch, capsys):
+    from botocore.exceptions import EndpointConnectionError
+
+    app = make_app()
+    real = app.store.sqs.send_message_batch
+    calls = {"n": 0}
+
+    def flaky(**kw):
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise EndpointConnectionError(endpoint_url="https://sqs.example")
+        return real(**kw)
+
+    monkeypatch.setattr(app.store.sqs, "send_message_batch", flaky)
+    capsys.readouterr()
+    status, body = submit(app, body=dict(STD, paths=20_000, shards=20))
+    assert status == 202
+    out = capsys.readouterr().out
+    assert any('"ApiErrors": 1' in line for line in out.splitlines())
+    run_workers(env)
+    job = get(app, body["job_id"])
+    assert job["status"] == "PARTIAL"
+    assert job["failed_shard_indexes"] == list(range(10, 20))

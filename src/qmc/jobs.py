@@ -12,7 +12,7 @@ Finalization is idempotent and safe under duplicate delivery:
 
 from __future__ import annotations
 
-from . import ids, log
+from . import ids, log, metrics
 from .aggregate import AggregationError, aggregate, compare_hex
 from .blackscholes import call_price
 from .params import JobParams
@@ -108,6 +108,7 @@ def create_and_enqueue(store: Store, make_record, id_parts: tuple[str, ...]) -> 
         for i in failed:
             store.mark_shard_failed(rec["job_id"], i, "enqueue_failed")
         log.error(event="enqueue_failed", job_id=rec["job_id"], count=len(failed))
+        metrics.emit(ApiErrors=1)  # the job will end PARTIAL; the api-errors alarm should see it
         finalize(store, rec["job_id"])
         rec = store.get_job(rec["job_id"]) or rec
     return rec

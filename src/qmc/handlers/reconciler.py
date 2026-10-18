@@ -26,6 +26,10 @@ def run(store: Store) -> dict:
             status = "error"
         outcomes[status] = outcomes.get(status, 0) + 1
     log.info(event="reconcile", count=len(jobs), code=str(outcomes))
+    if outcomes.get("error"):
+        # Fail the invocation after trying every job, so Lambda's Errors metric
+        # (and the reconciler-errors alarm) sees a job it could not finalize.
+        raise RuntimeError(f"{outcomes['error']} job(s) could not be reconciled")
     return {"checked": len(jobs), "outcomes": outcomes}
 
 

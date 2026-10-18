@@ -1,14 +1,16 @@
 # Licenses
 
+This repository's own code: copyright 2026 Paawan Desai, all rights reserved, shared for assessment only (see `LICENSE`). The rest of this file covers third-party components.
+
 Audit run with `pip-licenses --from=mixed` (re-run before submission; CI's
-`license-audit` job regenerates it and fails on GPL/AGPL, with partial matching so "GPLv2", "GPLv3+" and SPDX ids are caught too). That job reads pip metadata only, so libraries vendored inside a wheel (numpy's, below) were checked by hand from the built zip. Last run: 2026-10-15; vendored libraries checked 2026-10-17.
+`license-audit` job regenerates the table as the `LICENSES.generated.md` artifact and fails on GPL/AGPL, with partial matching so "GPLv2", "GPLv3+" and SPDX ids are caught too). That job reads pip metadata only, so libraries vendored inside a wheel (numpy's, below) were checked by hand from the built zip. Last run: 2026-10-17, matching the table below; vendored libraries checked the same day.
 `pip-licenses` leaves itself and its own dependencies out of its report by default; they are dev-only and checked by hand: pip-licenses 5.5.5 (MIT), prettytable 3.18.0 (BSD-3-Clause), wcwidth 0.9.2 (MIT).
 
 ## Packaged into Lambda
 
 | Package | Version | License | Where |
 |---|---|---|---|
-| numpy | 2.5.4 | BSD-3-Clause (bundled parts: 0BSD, MIT, Zlib, CC0-1.0). The arm64 wheel also vendors two native libraries in `numpy.libs/`: OpenBLAS (BSD-3-Clause) and libgfortran (GPL-3.0-or-later WITH GCC-exception-3.1; the GCC Runtime Library Exception permits use by non-GPL programs). Their license texts ship inside numpy's `dist-info/licenses/LICENSE.txt` in the zip | worker.zip |
+| numpy | 2.5.4 | BSD-3-Clause (bundled parts: 0BSD, MIT, Zlib, CC0-1.0). The arm64 wheel also vendors two native libraries in `numpy.libs/`: OpenBLAS (BSD-3-Clause; includes reference LAPACK, BSD-3-Clause-Open-MPI) and libgfortran (GPL-3.0-or-later WITH GCC-exception-3.1; the GCC Runtime Library Exception permits use by non-GPL programs). Their license texts ship inside numpy's `dist-info/licenses/LICENSE.txt` in the zip | worker.zip |
 | boto3 / botocore | runtime-provided | Apache-2.0 | provided by the AWS Lambda Python 3.13 runtime, not bundled |
 
 The api and reconciler zips contain only this repository's code.
@@ -22,6 +24,7 @@ The api and reconciler zips contain only this repository's code.
 | tflint | 0.59.1 | MPL-2.0 | |
 | Checkov | 3.3.29 | Apache-2.0 | IaC scanner (tfsec is deprecated into Trivy, so not used) |
 | gitleaks | 8.28.0 | MIT | pre-commit hook and CI |
+| Playwright | 1.56.1 (npm and the `mcr.microsoft.com/playwright:v1.56.1-noble` image) | Apache-2.0 | CI browser smoke test of the console |
 
 ## Python development and test dependencies (requirements-dev.lock)
 
