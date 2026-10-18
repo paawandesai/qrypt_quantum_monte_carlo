@@ -58,3 +58,38 @@ def test_opaque_qrypt_request_id_is_kept():
     block = base64.b64encode(b"\x00" * BLOCK_BYTES).decode()
     raw = json.dumps({"random": [block]}).encode()
     assert parse_response(raw, headers={"x-request-id": "a1b2-C3.d4:e5_f6"}).request_id == "a1b2-C3.d4:e5_f6"
+
+
+@pytest.mark.parametrize("text", HOSTILE)
+@pytest.mark.usefixtures("aws")
+def test_hostile_field_name_is_rejected_and_returned_only_as_json_data(text):
+    mock = MockQrypt()
+    status, body, headers = call(make_app(entropy=mock), "POST", "/jobs", body=dict(STD, **{text: 1}))
+    assert status == 400 and body["error"] == "invalid_request" and mock.calls == 0
+    assert headers["Content-Type"].startswith("application/json")
+
+
+@pytest.mark.parametrize("text", HOSTILE)
+@pytest.mark.usefixtures("aws")
+def test_hostile_query_parameters_on_list_are_rejected_or_ignored(text):
+    for query in ({"before": text}, {"status": text}, {"limit": text}):
+        status, body, _ = call(make_app(), "GET", "/jobs", query=query)
+        assert status in (200, 400) and ("jobs" in body or "error" in body)
+
+
+@pytest.mark.parametrize("text", HOSTILE)
+@pytest.mark.usefixtures("aws")
+def test_hostile_request_headers_change_nothing(text):
+    mock = MockQrypt()
+    headers = {"x-forwarded-for": text, "user-agent": text, "x-request-id": text, "origin": text}
+    status, _, resp_headers = call(make_app(entropy=mock), "POST", "/jobs", body=STD, headers=headers)
+    assert status == 202 and mock.calls == 1
+    assert "Access-Control-Allow-Origin" not in resp_headers
+
+
+def test_console_never_renders_values_as_html():
+    from pathlib import Path
+
+    js = (Path(__file__).parents[2] / "src/qmc/console/app.js").read_text()
+    for sink in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function"):
+        assert sink not in js, sink

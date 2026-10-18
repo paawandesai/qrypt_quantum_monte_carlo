@@ -57,8 +57,11 @@ def test_api_key_unavailable_fails_closed(aws):
 
 def test_empty_stored_key_fails_closed(aws):
     app = make_app(secrets=FakeSecrets(values={TEST_ENV["API_KEY_PARAM"]: ""}))
-    status, body, _ = call(app, "GET", "/jobs", key="")
+    status, body, _ = call(app, "GET", "/jobs", key="any-key")
     assert status == 503 and body["error"] == "api_key_unavailable"
+    # An empty bearer token never reaches the comparison, so it cannot match an empty stored key.
+    status, body, _ = call(app, "GET", "/jobs", key="")
+    assert status == 401
 
 
 def test_submit_creates_queued_job_with_seed_and_provenance(aws):
@@ -330,3 +333,34 @@ def test_job_deadline_comes_from_configuration(aws):
 def test_method_override_headers_are_refused(aws, header):
     status, body, _ = call(make_app(), "GET", "/jobs", headers={header: "POST"})
     assert status == 400 and body["error"] == "method_override_not_allowed"
+
+
+def test_huge_integer_paths_is_400_and_spends_no_entropy(aws):
+    mock = MockQrypt()
+    status, body, _ = call(
+        make_app(entropy=mock),
+        "POST",
+        "/jobs",
+        body='{"S0":100,"K":100,"r":0.05,"sigma":0.2,"T":1,"paths":1' + "0" * 400 + ',"shards":5}',
+    )
+    assert status == 400 and body["error"] == "invalid_request" and mock.calls == 0
+
+
+def test_invalid_base64_body_is_400_not_500(aws):
+    event = fn_url_event("POST", "/jobs", body="not*base64!")
+    event["isBase64Encoded"] = True
+    resp = make_app().handle(event, CTX)
+    assert resp["statusCode"] == 400 and json.loads(resp["body"])["error"] == "invalid_body"
+
+
+def test_duplicate_json_keys_are_refused_before_entropy(aws):
+    mock = MockQrypt()
+    raw = '{"S0":100,"K":100,"r":0.05,"sigma":0.2,"T":1,"paths":200000,"shards":true,"shards":5}'
+    status, body, _ = call(make_app(entropy=mock), "POST", "/jobs", body=raw)
+    assert status == 400 and body["error"] == "invalid_json" and "shards" in body["message"]
+    assert mock.calls == 0
+
+
+def test_bearer_scheme_is_case_insensitive(aws):
+    event = fn_url_event("GET", "/jobs", key=None, headers={"authorization": f"bearer {TEST_BEARER}"})
+    assert make_app().handle(event, CTX)["statusCode"] == 200

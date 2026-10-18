@@ -160,7 +160,7 @@ def validate_job_request(body, limits: Limits) -> tuple[JobParams, list[int]]:
     if paths is not None and shards is not None and paths >= 2 and shards >= 1:
         if shards > paths:
             problems.append("shards must be <= paths")
-        elif math.ceil(paths / shards) > limits.max_paths_per_shard:
+        elif -(-paths // shards) > limits.max_paths_per_shard:  # integer ceil: a float would overflow on huge paths
             problems.append(
                 f"paths per shard must be <= {limits.max_paths_per_shard} "
                 "(keeps each worker well under its timeout); use more shards"

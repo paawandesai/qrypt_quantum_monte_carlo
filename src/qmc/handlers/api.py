@@ -19,6 +19,7 @@ the body or any header.
 from __future__ import annotations
 
 import base64
+import binascii
 import hmac
 import json
 import os
@@ -50,6 +51,20 @@ SECURITY_HEADERS = {
 
 
 METHOD_OVERRIDE_HEADERS = frozenset({"x-http-method-override", "x-http-method", "x-method-override"})
+
+
+class DuplicateKey(ValueError):
+    pass
+
+
+def _no_duplicate_keys(pairs: list) -> dict:
+    """json.loads hook: a repeated key is ambiguous (which value was meant?), so refuse it."""
+    out: dict = {}
+    for k, v in pairs:
+        if k in out:
+            raise DuplicateKey(k[:40])
+        out[k] = v
+    return out
 
 
 class HttpError(Exception):
@@ -214,7 +229,8 @@ class App:
     def authorize(self, event: dict) -> None:
         headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
         supplied = headers.get("authorization", "")
-        if not supplied.startswith("Bearer "):
+        scheme, _, token = supplied.partition(" ")
+        if scheme.lower() != "bearer" or not token:  # the scheme is case-insensitive (RFC 7235)
             raise HttpError(401, "unauthorized", "missing bearer key")
         try:
             expected = self.secrets.get(self.env["API_KEY_PARAM"])
@@ -226,7 +242,7 @@ class App:
             log.error(event="api_key_empty")
             metrics.emit(ApiErrors=1)
             raise HttpError(503, "api_key_unavailable", "API key is empty")
-        if not hmac.compare_digest(supplied[7:].encode(), expected.encode()):
+        if not hmac.compare_digest(token.encode(), expected.encode()):
             raise HttpError(401, "unauthorized", "invalid bearer key")
 
     def body_json(self, event: dict):
@@ -234,13 +250,18 @@ class App:
         if event.get("isBase64Encoded"):
             if len(raw) > MAX_BODY_BYTES * 4 // 3 + 4:
                 raise HttpError(413, "body_too_large", f"body must be <= {MAX_BODY_BYTES} bytes")
-            raw = base64.b64decode(raw).decode("utf-8", errors="replace")
+            try:
+                raw = base64.b64decode(raw, validate=True).decode("utf-8", errors="replace")
+            except (binascii.Error, ValueError):
+                raise HttpError(400, "invalid_body", "body is not valid base64") from None
         if len(raw.encode()) > MAX_BODY_BYTES:
             raise HttpError(413, "body_too_large", f"body must be <= {MAX_BODY_BYTES} bytes")
         try:
-            return json.loads(raw) if raw else None
+            return json.loads(raw, object_pairs_hook=_no_duplicate_keys) if raw else None
         except json.JSONDecodeError:
             raise HttpError(400, "invalid_json", "body is not valid JSON") from None
+        except DuplicateKey as exc:
+            raise HttpError(400, "invalid_json", f"duplicate key in body: {exc}") from None
 
     def route(self, method: str, path: str, event: dict) -> dict:
         path = path.rstrip("/") or "/"
