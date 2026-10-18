@@ -373,3 +373,21 @@ def test_network_error_mid_enqueue_marks_job_partial_and_counts_an_api_error(env
     job = get(app, body["job_id"])
     assert job["status"] == "PARTIAL"
     assert job["failed_shard_indexes"] == list(range(10, 20))
+
+
+def test_jobs_and_shards_expire_seven_days_after_creation(env):
+    from datetime import datetime
+    from pathlib import Path
+
+    app = make_app()
+    _, body = submit(app)
+    run_workers(env)
+    jid = body["job_id"]
+    item = env["store"].jobs.get_item(Key={"job_id": jid})["Item"]
+    created = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00")).timestamp()
+    assert int(item["expires_at"]) - created == pytest.approx(7 * 86400, abs=2)
+    shards = env["store"].get_shards(jid)
+    assert shards and all(int(s["expires_at"]) - created == pytest.approx(7 * 86400, abs=120) for s in shards)
+    # DynamoDB only deletes what the table's TTL attribute names, on both tables.
+    tf = (Path(__file__).parents[1] / "infra/modules/data/main.tf").read_text()
+    assert tf.count('attribute_name = "expires_at"') == 2

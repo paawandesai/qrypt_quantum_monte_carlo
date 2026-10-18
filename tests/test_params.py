@@ -97,3 +97,9 @@ def test_limits_from_env():
     )
     assert lim == Limits(5, 2, 3, True)
     assert lim.as_dict()["max_paths"] == 5
+
+
+def test_integer_paths_too_large_for_a_float_is_a_validation_error_not_a_crash():
+    # paths / shards as a float overflows above ~1e308; validation must still report a 400.
+    with pytest.raises(ValidationError):
+        validate_job_request(dict(STD, paths=10**400), LIM)

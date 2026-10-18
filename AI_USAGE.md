@@ -10,9 +10,9 @@
 
 The candidate (Paawan) directed the work, set the guardrails, made the design
 decisions listed below, and reviewed the output (README and this file on
-2026-10-17). Every commit is authored under the candidate's name; of the 72
-non-merge commits, the assistant committed 64 and the candidate 8, and every one
-carries a `Co-Authored-By: Claude` trailer.
+2026-10-17). Every commit is authored under the candidate's name; most were committed by
+the assistant and a few by the candidate (`git log --format='%cn'`), and every
+non-merge commit carries a `Co-Authored-By: Claude` trailer.
 
 ## Inputs that materially shaped the solution
 
@@ -70,7 +70,7 @@ recorded in the README's Known constraints table rather than resolved silently.
 
 | Artifact | Verified by | Not verified |
 |---|---|---|
-| `src/qmc/**` (all deployed code, including the console) | 247 unit, moto-backed and adversarial tests (3 skip until `scripts/build.py` has run; 95% line+branch coverage); ruff; the seed-path grep; `terraform apply` succeeded and a second plan shows no drift | other regions, other Qrypt endpoints, and load beyond the measured runs; see `bench/deployed-checks-2026-10-14.md`, `-2026-10-16.md`, `-2026-10-16-mr9.md` and `bench/rebuild-2026-10-15.md` for what ran on AWS against the real Qrypt API |
+| `src/qmc/**` (all deployed code, including the console) | 278 unit, moto-backed and adversarial tests (3 skip until `scripts/build.py` has run; 95% line+branch coverage); ruff; the seed-path grep; `terraform apply` succeeded and a second plan shows no drift | other regions, other Qrypt endpoints, and load beyond the measured runs; see `bench/deployed-checks-2026-10-14.md`, `-2026-10-16.md`, `-2026-10-16-mr9.md` and `bench/rebuild-2026-10-15.md` for what ran on AWS against the real Qrypt API |
 | `eval/adversarial/**` | run green; each case was read for whether it can fail | that the hostile strings cover every attack form |
 | `tests/**` | run green locally; each test was read for whether it can fail (the statistical test is intentionally non-deterministic) | that the test suite covers every edge case the brief lists |
 | `infra/**` (Terraform) | `terraform validate`, `terraform plan` (40 resources with the S3 code bucket, no secret values in plan output), tflint (preset `all`), Checkov (0 failed; every suppression has an inline reason); `apply` succeeded (first without reservations, re-applied with them on 2026-10-15) and a second plan showed no drift; a throwaway stack was applied from empty (85 s) and destroyed cleanly (123 s) on 2026-10-15 | the dev stack itself has not been destroyed (planned after grading) |

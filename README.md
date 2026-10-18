@@ -28,12 +28,15 @@ out across SQS-driven Lambda workers with independently derived shard seeds,
 aggregates to a price with a 95% confidence interval, and can be **replayed**
 from its stored seed to recompute the same float64 result.
 
-Status (2026-10-17): code, tests and Terraform are complete and deployed to a
+Status (2026-10-18): code, tests and Terraform are complete and deployed to a
 dev stack in `us-east-1`, with reserved concurrency in place (worker 10, api 5).
 Every change to deployed code is applied from `main`, and `terraform plan` then
 shows no drift. The 1M-path job, replay, latency and wall-clock benchmarks were
-re-measured there on 2026-10-16 with the reservations on; the fail-closed test
-passed, and a fault-injection run was checked live, with the `shard-failures`
+re-measured there on 2026-10-16 with the reservations on. The deployed
+fail-closed test (`scripts/deployed_failclosed_test.py`) last ran on 2026-10-14,
+before the Qrypt host allow-list was added; since then, real Qrypt failures (a
+503 and a timeout in the 2026-10-16 latency run) were rejected fail-closed. A
+fault-injection run was checked live, with the `shard-failures`
 and `dlq-depth` alarm emails arriving (`bench/deployed-checks-2026-10-16-mr9.md`).
 The 2026-10-17 changes (input edge cases, console wording) were applied the same
 day, and a fresh 1M-path job and its bit-identical replay were checked live
@@ -163,7 +166,9 @@ out of band and are not in either stack.
 6. `POST /jobs/{id}/replay` creates a new job linked to the original, with the
    original's seed and parameters and **no Qrypt call**. Workers recompute every
    shard; on completion the job records a field-by-field hex comparison and a
-   verdict that reads `bit-identical` only if all four values match. Replays
+   verdict that reads `bit-identical` only if all four values match. A replay's
+   `entropy` fields are copied from the original, because they describe the
+   seed it reuses; the replay itself spends none (`entropy_used_kib: 0`). Replays
    spend no entropy, so a daily cap (100 per UTC day by default) bounds what a
    key holder can make the workers compute.
 
@@ -356,7 +361,7 @@ not committed.
 
 ## How correctness is checked
 
-All by committed tests (`pytest`, 247 tests including the adversarial set, 3 of which skip until `scripts/build.py` has run; 95% line+branch coverage of `src/qmc`;
+All by committed tests (`pytest`, 278 tests including the adversarial set, 3 of which skip until `scripts/build.py` has run; 95% line+branch coverage of `src/qmc`;
 CI gate 80%). Nothing is verified by a model's say-so.
 
 | Property | Test |
@@ -479,7 +484,9 @@ That is one job, not a proof for every host.
   `bench/deployed-checks-2026-10-16-mr9.md`).
   Oversized `paths/shards` ratios are rejected at submit.
 - **Out-of-range numbers**: NaN, Infinity, booleans, strings and integers too
-  large for a float64 are each a 400 with a message, never a 500.
+  large for a float64 (in any field, including `paths`) are each a 400 with a
+  message, never a 500. A body that repeats a key, or is not valid base64 when
+  marked as encoded, is a 400 too.
 - **Fault injection (test path in deployed code)**: `enable_fault_injection`
   (default `false`) lets a job name `fail_shards` that raise in the worker. It
   exists to demonstrate the DLQ alarm with a genuinely failing worker. When the
@@ -499,7 +506,15 @@ That is one job, not a proof for every host.
   (instruction-like text, HTML/script, SQL and shell metacharacters, template
   syntax, bidi overrides): all 56 job-field cases (8 strings × 7 fields) are rejected with 400 before
   any Qrypt call, all hostile path ids get 400/404, and all hostile request ids
-  are dropped.
+  are dropped. Further cases cover hostile field names, query parameters and
+  request headers, and a check that the console source contains no HTML sink
+  (`innerHTML`, `document.write`, `eval` and similar).
+- **What reaches Qrypt**: only the Qrypt token (read from SSM), a fixed
+  User-Agent and `size=1`. No job parameters, keys or caller data are sent.
+  Every accepted submit, including a grader's, draws 1 KiB from the owner's
+  Qrypt allotment. Qrypt's API returns no request id today, so jobs record
+  `qrypt_request_id: null` and keep the block's SHA-256 and the serving host as
+  provenance instead.
 - **Secrets**: the Qrypt token and the API bearer key are SSM SecureStrings
   created out of band (CLI or console). Terraform only builds their ARNs from the
   names to scope IAM; there is deliberately **no** `data "aws_ssm_parameter"`,
@@ -577,7 +592,7 @@ steady 100 jobs/day would.
 | DynamoDB | provisioned 20 RCU + 20 WCU across both tables and the GSI; storage < 100 MB (TTL 7 days) | 25 RCU, 25 WCU, 25 GB per account per region | 5 RCU/WCU |
 | SQS | idle long polling by the event-source mapping ≈ 0.26–0.65M requests (5 pollers shrinking to 2, 20 s waits) + jobs: 3,000 × (1 batch send + 10 receives + 10 deletes) ≈ 63k + `/system` reads | 1M | ~29% worst case |
 | KMS | 2 SecureString decrypts per api container per hour at most (secrets cached for 1 hour); worst case 5 warm containers all month ≈ 7,200; the health check itself never decrypts | 20,000 requests | ≥ 64% |
-| CloudWatch | 7 custom metrics (dimensions Environment + Function only; never a job id), 6 alarms watching 8 metrics (worker-errors and api-errors each sum two), 1 dashboard; logs well under 5 GB | 10 metrics, 10 alarm metrics, 3 dashboards, 5 GB logs | 3 metrics, 3 alarm metrics |
+| CloudWatch | 7 custom metrics (dimensions Environment + Function only; never a job id; `EntropyKiBConsumed` counts KiB but is published with CloudWatch's `Kilobytes` unit, as CloudWatch has no KiB unit), 6 alarms watching 8 metrics (worker-errors and api-errors each sum two), 1 dashboard; logs well under 5 GB | 10 metrics, 10 alarm metrics, 3 dashboards, 5 GB logs | 3 metrics, 3 alarm metrics |
 | SNS | a handful of alarm publishes + emails | 1M publishes, 1,000 emails | |
 | EventBridge | scheduled rule, 8,640 invocations | scheduled rules are not charged | |
 | SSM Parameter Store | 2 standard parameters, standard throughput | no charge | |
@@ -611,7 +626,7 @@ nothing stubbed. Raw JSON lands in `bench/`.
 
 | Target | Value | Result |
 |---|---|---|
-| Submit latency, warm, 50 submissions | < 800 ms p95 | **623.6 ms p95**, 353.2 ms p50, 729.3 ms max over accepted submits (the one Qrypt timeout took 5.7 s before its 504); first request 699.3 ms. 48 of 50 accepted: Qrypt answered one submit with a 503 and timed out on another, and both were rejected fail-closed with `entropy_unavailable` and their cause (2026-10-16, reservations on, client in a us-east cloud container; `bench/results-latency-20261016T173906Z.json`). The 2026-10-14 run without reservations: 619.8 ms p95, 50 of 50 accepted |
+| Submit latency, warm, 50 submissions | < 800 ms p95 | **623.6 ms p95**, 353.2 ms p50, 729.3 ms max over accepted submits (the one Qrypt timeout took 5.7 s before its 504); first request 699.3 ms; each submit was a 10,000-path, 1-shard job (`scripts/bench.py`), and the submit path does the same work for any size up to 10 shards (one Qrypt call, one `SendMessageBatch`). 48 of 50 accepted: Qrypt answered one submit with a 503 and timed out on another, and both were rejected fail-closed with `entropy_unavailable` and their cause (2026-10-16, reservations on, client in a us-east cloud container; `bench/results-latency-20261016T173906Z.json`). The 2026-10-14 run without reservations: 619.8 ms p95, 50 of 50 accepted |
 | 1M paths submit → `COMPLETE`, 5 runs | < 60 s | **0.58 s median**, 1.12 s max; all 5 `COMPLETE`, all within 3 SE of Black-Scholes (worst z = 1.39) (2026-10-16, reservations on; `bench/results-wallclock-20261016T174021Z.json`). The 2026-10-14 run without reservations: 1.07 s median |
 | `terraform apply` from empty | < 10 min | **85 s** for 39 resources (the stack then; one alarm added since, now 40), then a second plan with no drift; `terraform destroy` removed all 39 in 123 s with nothing left behind (2026-10-15, a throwaway stack in the same account; `bench/rebuild-2026-10-15.md`) |
 | Steady-state cost at 100 jobs/day | $0 | **≈ 13,000 GB-s/month** of 400,000 free, from measured billed durations (2026-10-15, `bench/results-gbs-*.json`); other services per the arithmetic above |
