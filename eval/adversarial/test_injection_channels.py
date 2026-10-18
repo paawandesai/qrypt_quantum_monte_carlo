@@ -93,3 +93,10 @@ def test_console_never_renders_values_as_html():
     js = (Path(__file__).parents[2] / "src/qmc/console/app.js").read_text()
     for sink in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function"):
         assert sink not in js, sink
+
+
+@pytest.mark.parametrize("text", [*HOSTILE, "a" * 300])
+@pytest.mark.usefixtures("aws")
+def test_hostile_console_file_names_get_404_without_a_key(text):
+    status, body, _ = call(make_app(), "GET", "/static/" + text + ".js", key=None)
+    assert status == 404 and body["error"] == "not_found"

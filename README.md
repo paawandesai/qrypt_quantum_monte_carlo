@@ -314,7 +314,7 @@ All routes except the console (`GET`/`HEAD /` and `/static/*`) require `Authoriz
 | Method and path | Result |
 |---|---|
 | `POST /jobs` | `202 {job_id, status: "QUEUED", master_seed_hex, ...}`. Body: `{S0, K, r, sigma, T, paths, shards}` |
-| `GET /jobs` | `{jobs: [...], next_before}` newest first; `?status=&limit=&before=`. Empty list on a fresh deployment |
+| `GET /jobs` | `{jobs: [...], next_before}` newest first; `?status=&limit=&before=` (`before` takes the previous page's `next_before`, an ISO-8601 UTC timestamp; anything else is a 400). Empty list on a fresh deployment |
 | `GET /jobs/{id}` | the job record with `progress` (shards done/failed), then `result` when `COMPLETE`; `404` with a message for an unknown id, `400 invalid_job_id` for one that is not 32 lowercase hex characters |
 | `POST /jobs/{id}/replay` | `202` new job with `replay_of`; `409` if the original is not `COMPLETE` or the runtime fingerprint differs; `429` with `Retry-After` once the daily replay cap is reached (100 per UTC day by default) |
 | `GET /jobs/{id}/bundle` | parameters, seed, provenance and hex results for `scripts/verify.py` |
@@ -361,7 +361,7 @@ not committed.
 
 ## How correctness is checked
 
-All by committed tests (`pytest`, 278 tests including the adversarial set, 3 of which skip until `scripts/build.py` has run; 95% line+branch coverage of `src/qmc`;
+All by committed tests (`pytest`, 296 tests including the adversarial set, 3 of which skip until `scripts/build.py` has run; 95% line+branch coverage of `src/qmc`;
 CI gate 80%). Nothing is verified by a model's say-so.
 
 | Property | Test |
@@ -506,8 +506,8 @@ That is one job, not a proof for every host.
   (instruction-like text, HTML/script, SQL and shell metacharacters, template
   syntax, bidi overrides): all 56 job-field cases (8 strings × 7 fields) are rejected with 400 before
   any Qrypt call, all hostile path ids get 400/404, and all hostile request ids
-  are dropped. Further cases cover hostile field names, query parameters and
-  request headers, and a check that the console source contains no HTML sink
+  are dropped. Further cases cover hostile field names, query parameters,
+  request headers and console file names (the one route that needs no key), and a check that the console source contains no HTML sink
   (`innerHTML`, `document.write`, `eval` and similar).
 - **What reaches Qrypt**: only the Qrypt token (read from SSM), a fixed
   User-Agent and `size=1`. No job parameters, keys or caller data are sent.

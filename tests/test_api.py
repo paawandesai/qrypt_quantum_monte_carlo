@@ -364,3 +364,26 @@ def test_duplicate_json_keys_are_refused_before_entropy(aws):
 def test_bearer_scheme_is_case_insensitive(aws):
     event = fn_url_event("GET", "/jobs", key=None, headers={"authorization": f"bearer {TEST_BEARER}"})
     assert make_app().handle(event, CTX)["statusCode"] == 200
+
+
+@pytest.mark.parametrize("name", ["a" * 300 + ".js", "x\x00.js", "%00.js", "../" * 40 + "etc/passwd"])
+def test_console_file_route_never_500s_without_a_key(aws, name):
+    status, body, _ = call(make_app(), "GET", "/static/" + name, key=None)
+    assert status == 404 and body["error"] == "not_found"
+
+
+@pytest.mark.parametrize("before", ["x" * 2000, "not-a-date", "2026-10-18T17:29:01.123456Z' OR 1=1", ""])
+def test_invalid_before_cursor_is_400(aws, before):
+    status, body, _ = call(make_app(), "GET", "/jobs", query={"before": before})
+    assert status == 400 and body["error"] == "invalid_before"
+
+
+def test_next_before_cursor_pages_through_jobs(aws):
+    app = make_app()
+    ids = [call(app, "POST", "/jobs", body=dict(STD, paths=200_000 + i))[1]["job_id"] for i in range(3)]
+    status, page1, _ = call(app, "GET", "/jobs", query={"limit": "2"})
+    assert status == 200 and len(page1["jobs"]) == 2 and page1["next_before"]
+    status, page2, _ = call(app, "GET", "/jobs", query={"limit": "2", "before": page1["next_before"]})
+    assert status == 200
+    seen = [j["job_id"] for j in page1["jobs"] + page2["jobs"]]
+    assert sorted(seen) == sorted(ids)
