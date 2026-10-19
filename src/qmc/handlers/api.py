@@ -53,6 +53,9 @@ SECURITY_HEADERS = {
 METHOD_OVERRIDE_HEADERS = frozenset({"x-http-method-override", "x-http-method", "x-method-override"})
 
 
+BEFORE_RE = re.compile(r"\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?Z?)?")
+
+
 class DuplicateKey(ValueError):
     pass
 
@@ -300,8 +303,12 @@ class App:
     def static(self, path: str) -> dict:
         name = path.removeprefix("/static/")
         types = {".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript"}
-        target = (CONSOLE_DIR / name).resolve()
-        if CONSOLE_DIR not in target.parents or target.suffix not in types or not target.is_file():
+        try:
+            target = (CONSOLE_DIR / name).resolve()
+            found = CONSOLE_DIR in target.parents and target.suffix in types and target.is_file()
+        except (OSError, ValueError):  # e.g. a name too long for the filesystem, or a NUL byte
+            found = False
+        if not found:
             raise HttpError(404, "not_found", "no such file")
         return {
             "statusCode": 200,
@@ -384,6 +391,10 @@ class App:
         if not 1 <= limit <= 100:
             raise HttpError(400, "invalid_limit", "limit must be between 1 and 100")
         before = q.get("before")
+        if before is not None and not BEFORE_RE.fullmatch(before):
+            # The cursor is a created_at timestamp (the previous page's next_before). Anything
+            # else, and a value past DynamoDB's sort-key size limit, is a 400, not a query error.
+            raise HttpError(400, "invalid_before", "before must be an ISO-8601 UTC timestamp such as next_before")
         jobs = self.store.list_jobs(status, limit, before)
         items = [summary(j) for j in jobs]
         next_cursor = items[-1]["created_at"] if len(items) == limit else None
